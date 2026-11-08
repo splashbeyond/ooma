@@ -23,6 +23,8 @@ def status(p: Profile, n_screened: int, cfg: dict | None = None) -> str:
     c = {**DEFAULTS, **(cfg or {})}
     if p.kind != "directional":
         return f"excluded:{p.kind}"
+    if p.median_hold_s is not None and p.median_hold_s < c["min_hold_s"]:
+        return "excluded:short_term"                     # HFT / scalper: can't be followed at hourly cadence
     if p.n_closes < c["min_closes"] or p.active_days < c["min_active_days"]:
         return "neutral"
     k = max(1, n_screened)

@@ -92,6 +92,17 @@ class WalletTracker:
             self.con.execute("UPDATE wallets SET status=? WHERE address=?", [status(p, k, self.cfg.get("profile")), a])
         return profs
 
+    def restatus(self) -> dict:
+        """Re-apply the status rules to stored profiles. No API calls (use after changing rules)."""
+        rows = self.con.execute("SELECT address, profile FROM wallets WHERE profile IS NOT NULL").fetchall()
+        profs = {a: Profile(**json.loads(j)) for a, j in rows}
+        k = sum(p.kind == "directional" for p in profs.values())
+        out = {}
+        for a, p in profs.items():
+            out[a] = status(p, k, self.cfg.get("profile"))
+            self.con.execute("UPDATE wallets SET status=? WHERE address=?", [out[a], a])
+        return out
+
     def by_status(self, st: str) -> list[dict]:
         rows = self.con.execute("SELECT address, profile FROM wallets WHERE status=?", [st]).fetchall()
         return [json.loads(p) for _, p in rows]

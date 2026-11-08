@@ -192,3 +192,15 @@ def test_tracker_end_to_end_with_fake_api():
     co = cohort_frame(con, "ETH")
     r = co.row(0, named=True)
     assert r["skill_net"] == 1.0 and r["weak_net"] == -1.0             # skilled long, weak short
+
+
+def test_short_hold_bots_are_not_followable():
+    f = []
+    for d in range(60):
+        for k in range(4):                      # open/close within seconds, always wins: a latency bot, not a trader to follow
+            t0 = T0 + d * DAY + k * 3_600_000
+            f.append(fill(t0, "ETH", 2000.0, 1.0, "B", 0.0, fee=0.5, d="Open Long"))
+            f.append(fill(t0 + 5_000, "ETH", 2000.0, 1.0, "A", 1.0, closed=40.0, fee=0.5, d="Close Long"))
+    p = prof(f)
+    assert p.kind == "directional" and p.median_hold_s == pytest.approx(5.0)
+    assert status(p, 10) == "excluded:short_term"

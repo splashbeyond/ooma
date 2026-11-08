@@ -65,6 +65,13 @@ def wallets_discover(n: int = 300, min_account: float = 50_000, max_turnover: fl
     typer.echo("status: " + str(dict(Counter(r[0] for r in t.con.execute("SELECT status FROM wallets").fetchall()))))
 
 
+@wallets_app.command("restatus")
+def wallets_restatus():
+    """Re-apply skill/exclusion rules to stored profiles (no API calls)."""
+    from collections import Counter
+    typer.echo(str(dict(Counter(_tracker().restatus().values()))))
+
+
 @wallets_app.command("top")
 def wallets_top(status: str = "skilled", limit: int = 20):
     """Show wallets by status: skilled | weak | neutral | excluded:market_maker | excluded:hedger ..."""

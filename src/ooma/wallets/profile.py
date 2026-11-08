@@ -22,6 +22,7 @@ DEFAULTS = dict(
     carry_funding_share=0.40,          # share of total profit that came from funding
     min_closes=100, min_active_days=20,
     max_top5_share=0.60, max_top1_share=0.35,
+    min_hold_s=3600,                   # positions held < 1h are invisible to hourly snapshots: not followable
     alpha=0.05,
 )
 
