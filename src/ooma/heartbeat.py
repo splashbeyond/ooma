@@ -63,11 +63,17 @@ class Heartbeat:
         self.last_progress = time.time()
 
     def update(self, activity: str | None = None, **fields):
+        changed = False
         with self._lock:
             if activity and activity != self.activity:
-                self.activity, self.activity_since = activity, time.time()
+                self.activity, self.activity_since, changed = activity, time.time(), True
             self.fields.update(fields)
         self.progress()
+        if changed:
+            try:
+                self._write()                                          # a new activity shows up at once, not at the next timer beat
+            except Exception:                                          # noqa: BLE001
+                log.exception("heartbeat write failed")
 
     def snapshot(self) -> dict:
         now = time.time()
