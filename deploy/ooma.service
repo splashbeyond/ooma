@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/ooma
-ExecStart=%h/.local/bin/uv run ooma run
+ExecStart=%h/ooma/.venv/bin/ooma run
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1

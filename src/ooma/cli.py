@@ -222,6 +222,7 @@ def run():
     from .adapters.hyperliquid import HyperliquidAdapter
     from .predict.runner import run_forever
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     from .wallets.api import WalletAPI
     from .wallets.tracker import WalletTracker
     loop, markets = _loop()
