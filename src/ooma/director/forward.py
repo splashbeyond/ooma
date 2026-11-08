@@ -60,12 +60,13 @@ class ForwardBook:
                 net = np.where(d[c], ret[c], -ret[c]) - cost
                 res.n, res.hits = len(c), int(correct.sum())
                 res.hit_rate, res.chance = res.hits / res.n, float(max(up.mean(), 1 - up.mean()))
-                res.p = binom_sf(res.hits, res.n, res.chance)
+                res.p = res.p_binom = binom_sf(res.hits, res.n, res.chance)
+                res.trades = (np.array([rows[j][0] for j in chosen], dtype=float), correct.astype(float) - res.chance, net)
                 res.net_mean = float(net.mean())
                 if res.n >= 3 and net.std(ddof=1) > 0:
                     res.net_t = float(net.mean() / (net.std(ddof=1) / np.sqrt(res.n)))
             per.append(res)
-        return pool(per)
+        return pool(per, block_days=1.0)
 
 
 def ask_live(sandbox: SandboxRunner, source: str, arrays: dict):

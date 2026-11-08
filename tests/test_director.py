@@ -185,3 +185,34 @@ def test_many_looks_make_a_marginal_script_fail_the_holdout():
     r = BinaryResult(n=60, hits=40, hit_rate=40 / 60, chance=0.5, p=binom_sf(40, 60, 0.5), net_mean=0.003, net_t=2.0)
     assert holdout_ok(r, Gates(), looks=2)
     assert not holdout_ok(r, Gates(), looks=140)               # a week of back-to-back sessions: marginal results no longer pass
+
+
+def test_slots_cap_paper_trading_and_patience_frees_them():
+    from ooma.scripts.registry import ScriptRecord, script_id
+    d, j, _ = director(frame(5000, 4, 0.4), [MOMO], gates=Gates(max_incubating=1, fwd_max_days=2.0))
+    def rec(name, age_days, stage="incubating"):
+        src = MOMO + f"# {name}\n"
+        r = ScriptRecord(id=script_id(src), name=name, hypothesis="h", source=src, horizon_bars=1, timeframe="1h", markets=["ETH"],
+                         stage=stage, created_at=datetime.now(timezone.utc) - timedelta(days=age_days))
+        j.put("scripts", r.id, r)
+        return r
+    rec("occupant", 0.1)
+    assert d.n_incubating() == 1
+    rep = d.run_session()                                           # a good new candidate arrives, but the only slot is taken
+    assert rep.incubating == [] and any("slots are full" in r.reason for r in j.all("scripts"))
+    old = rec("stale_one", 5.0)                                     # older than fwd_max_days with no forward evidence
+    stats = d.tick()
+    assert "stale_one" in stats["retired"]
+    assert next(r for r in j.all("scripts") if r.name == "stale_one").stage == "retired"
+    assert next(r for r in j.all("scripts") if r.name == "occupant").stage == "incubating"   # young one keeps its slot
+
+
+def test_live_summary_reports_paper_pnl():
+    d, j, _ = director(frame(5600, 4, 0.4), [MOMO])
+    d.hub.cursor = 5000
+    d.run_session()
+    for step in range(5000, 5040):
+        d.hub.cursor = step + 1
+        d.tick()
+    s = d.live_summary()
+    assert s and s[0]["paper_trades"] > 0 and s[0]["paper_pnl_pct"] is not None and s[0]["name"].startswith("momo")

@@ -67,3 +67,6 @@ director:
   hypotheses: 2          # ideas per research session (kept small so sessions are fast and cheap)
   rounds: 1              # refinements per idea, from TRAIN metrics only
   pause_s: 120           # rest between back-to-back sessions
+  incubation: soft         # plausible candidates paper-trade for free; live evidence is the real gate
+  max_incubating: 12       # paper-trading slots
+  fwd_max_days: 10         # retire a paper-trader that has not earned 'active' by then (frees the slot)

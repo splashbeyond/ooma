@@ -212,7 +212,8 @@ def _director():
     sb = SandboxRunner(isolated_user=os.environ.get("OOMA_SANDBOX_USER") or None)
     focus = d.get("focus") or None
     hub = DataHub(HyperliquidAdapter(), markets=focus, top_n=d.get("top_n", 17))
-    return Director(j, notes, llm, hub, sb, gates=Gates(), hypotheses=d.get("hypotheses", 4), rounds=d.get("rounds", 2), focus=focus), j, d
+    g = Gates(max_incubating=d.get("max_incubating", 12), fwd_max_days=d.get("fwd_max_days", 10.0), soft_holdout=d.get("soft_holdout", True))
+    return Director(j, notes, llm, hub, sb, gates=g, hypotheses=d.get("hypotheses", 4), rounds=d.get("rounds", 2), focus=focus), j, d
 
 
 @app.command()
@@ -225,40 +226,100 @@ def direct():
 
 @app.command("director-run")
 def director_run():
-    """Run the director forever: research sessions back to back, plus an hourly forward-test tick for live scripts."""
-    import json
+    """Run the director forever with a heartbeat: research sessions back to back, plus hourly paper-trading of live scripts."""
     import logging
     import time
+    from collections import Counter
     from datetime import datetime, timedelta, timezone
     from pathlib import Path
+
+    from .heartbeat import Heartbeat
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     log = logging.getLogger("ooma.director")
+    hb = Heartbeat("data/heartbeat_director.json", "director").start()
     d, j, cfg = _director()
+    d.hb, d.hub.on_progress = hb, hb.progress
     pause = cfg.get("pause_s", 120)
     Path("data/reports").mkdir(parents=True, exist_ok=True)
+    totals = {"sessions": 0, "scripts_written": 0, "last_session": None, "last_result": None}
 
-    def next_tick_time():
-        return (datetime.now(timezone.utc) + timedelta(hours=1)).replace(minute=5, second=0, microsecond=0)
+    def rest(seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            hb.progress()
+            time.sleep(min(10, max(0, end - time.time())))
+
+    def publish(activity):
+        recs = j.all("scripts")
+        hb.update(activity, sessions=totals["sessions"], last_session=totals["last_session"], last_result=totals["last_result"],
+                  scripts=dict(Counter(r.stage for r in recs)), looks_7d=d.recent_looks(),
+                  llm_usd_today=round(d.llm.spent_today(), 3), llm_budget_usd=d.llm.budget, paper=d.live_summary())
+
     next_tick = datetime.now(timezone.utc)
+    publish("starting")
     while True:
         sleep_s = pause
         try:
             now = datetime.now(timezone.utc)
             if now >= next_tick:
+                publish("paper-trading tick")
                 log.info("forward tick: %s", d.tick())
-                next_tick = next_tick_time()
+                next_tick = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(minute=5, second=0, microsecond=0)
+                publish("paper-trading tick done")
+            publish("research session")
             rep = d.run_session()
+            totals["sessions"] += 1
+            totals["scripts_written"] += rep.written
+            totals["last_session"] = datetime.now(timezone.utc).isoformat()
+            totals["last_result"] = {k: getattr(rep, k) for k in ("proposed", "rejected_train", "holdout_tested", "incubating", "stopped")}
             log.info("session: %s", rep)
             with open(f"data/reports/director-{now.date()}.md", "a") as f:
                 f.write(f"\n## session {rep.session}\n{rep}\n")
             if "budget" in rep.stopped.lower():
-                sleep_s = 900                                  # out of daily LLM budget: wait, keep forward-testing
-            Path("data/director_heartbeat.json").write_text(json.dumps({"ok": True, "at": datetime.now(timezone.utc).isoformat(), "looks_7d": d.recent_looks()}))
+                sleep_s = 900                                  # out of daily LLM budget: wait, keep paper-trading
         except Exception:                                    # noqa: BLE001  never die
             log.exception("director cycle failed")
             sleep_s = 300
-        time.sleep(sleep_s)
+        try:
+            publish("resting")
+        except Exception:                                    # noqa: BLE001
+            log.exception("publish failed")
+        rest(sleep_s)
+
+
+@app.command()
+def status():
+    """Is it alive, what is it doing, and how are the paper-trading strategies doing? Reads the heartbeat files."""
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    def load(name):
+        p = Path(f"data/{name}")
+        if not p.exists():
+            return None
+        d = json.loads(p.read_text())
+        d["age_s"] = round((datetime.now(timezone.utc) - datetime.fromisoformat(d["at"])).total_seconds())
+        return d
+    for label, name in (("LOOP    (hourly predictions, wallets, market-wide recording)", "heartbeat.json"), ("DIRECTOR (LLM research + paper trading)", "heartbeat_director.json")):
+        d = load(name)
+        if d is None:
+            typer.echo(f"{label}: no heartbeat file")
+            continue
+        alive = "ALIVE" if d["age_s"] < 180 and d.get("ok") else "STALE/UNHEALTHY"
+        typer.echo(f"{label}\n  {alive}: last beat {d['age_s']}s ago, doing '{d['activity']}' for {d['activity_for_s']}s, up {d['uptime_s'] // 3600}h{d['uptime_s'] % 3600 // 60}m, rss {d.get('rss_mb')} MB")
+        if name.endswith("director.json"):
+            typer.echo(f"  sessions {d.get('sessions')}, scripts {d.get('scripts')}, holdout looks(7d) {d.get('looks_7d')}, LLM ${d.get('llm_usd_today')}/{d.get('llm_budget_usd')}")
+            lr = d.get("last_result")
+            if lr:
+                typer.echo(f"  last session: {lr}")
+            paper = d.get("paper") or []
+            typer.echo(f"  PAPER TRADING: {len(paper)} live strategies")
+            for x in paper[:10]:
+                typer.echo(f"    {x['stage']:10} {x['name'][:34]:34} {x['timeframe']}/H{x['horizon']:<3} trades={x['paper_trades']:<4} hit={x['hit']} vs {x['chance']}  net/trade={x['net_per_trade_pct']}%  paper PnL={x['paper_pnl_pct']}%  p={x['p']}")
+        else:
+            typer.echo(f"  bars processed {d.get('bars')}, last tick {d.get('last_tick')}")
 
 
 @app.command("scripts")

@@ -4,7 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+WatchdogSec=600
 WorkingDirectory=%h/ooma
 EnvironmentFile=%h/.ooma.env
 ExecStart=%h/ooma/.venv/bin/ooma director-run

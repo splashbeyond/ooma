@@ -103,7 +103,7 @@ def judge(direction: np.ndarray, act: np.ndarray, open_: np.ndarray, close: np.n
     return r
 
 
-def pool(results: list[BinaryResult]) -> BinaryResult:
+def pool(results: list[BinaryResult], block_days: float = 7.0) -> BinaryResult:
     """Combine per-market results (independent series) into one verdict."""
     rs = [r for r in results if r.n > 0]
     out = BinaryResult(n_bars=sum(r.n_bars for r in results), n_acts=sum(r.n_acts for r in results))
@@ -114,7 +114,7 @@ def pool(results: list[BinaryResult]) -> BinaryResult:
     out.chance = sum(r.chance * r.n for r in rs) / out.n
     out.p = out.p_binom = binom_sf(out.hits, out.n, out.chance)
     if len(rs) > 1 and all(r.trades is not None for r in rs):
-        out.p = block_p(np.concatenate([r.trades[0] for r in rs]), np.concatenate([r.trades[1] for r in rs]))
+        out.p = block_p(np.concatenate([r.trades[0] for r in rs]), np.concatenate([r.trades[1] for r in rs]), block_days=block_days)
     out.net_mean = sum(r.net_mean * r.n for r in rs) / out.n
     ts = [r.net_t for r in rs if r.net_t is not None]
     out.net_t = float(sum(ts) / math.sqrt(len(ts))) if ts else None      # Stouffer-style combination
@@ -130,6 +130,9 @@ class Gates:
     max_holdout_p: float = 0.05      # Bonferroni-adjusted by holdout looks in the session
     fwd_min_n: int = 30
     fwd_max_p: float = 0.05          # adjusted by number of scripts incubating at once
+    max_incubating: int = 12         # paper-trading slots
+    fwd_max_days: float = 10.0       # patience: a script that has not earned 'active' by then is retired
+    soft_holdout: bool = True        # let plausible candidates into FREE paper trading; forward evidence is the real gate
 
 
 def train_ok(r: BinaryResult, g: Gates) -> bool:
@@ -139,6 +142,11 @@ def train_ok(r: BinaryResult, g: Gates) -> bool:
 def holdout_ok(r: BinaryResult, g: Gates, looks: int) -> bool:
     return (r.n >= g.min_holdout_n and (r.hit_rate or 0) > (r.chance or 1) and (r.net_mean or -1) > 0
             and min(1.0, r.p * max(1, looks)) <= g.max_holdout_p)
+
+
+def holdout_soft_ok(r: BinaryResult, g: Gates) -> bool:
+    """Entry ticket to paper trading: enough trades and not worse than chance. No significance claim is made here."""
+    return r.n >= g.min_holdout_n and (r.hit_rate or 0) > (r.chance or 1) and (r.net_mean or -1) > 0
 
 
 def forward_verdict(r: BinaryResult, g: Gates, k_incubating: int) -> str:

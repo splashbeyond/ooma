@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..wallets.tracker import cohort_frame
+from ..heartbeat import Heartbeat
 from .features import feature_frame
 from .loop import RecursiveLoop
 from .report import digest, state_summary
@@ -36,7 +37,7 @@ def replay(loop: RecursiveLoop, adapter, markets, days: int, end: datetime | Non
     return n
 
 
-def tick(loop: RecursiveLoop, adapter, markets, lookback_h: int = 900, tracker=None) -> dict:
+def tick(loop: RecursiveLoop, adapter, markets, lookback_h: int = 900, tracker=None, progress=None) -> dict:
     end = datetime.now(timezone.utc)
     if tracker is not None:
         try:
@@ -68,19 +69,25 @@ def tick(loop: RecursiveLoop, adapter, markets, lookback_h: int = 900, tracker=N
 
 def run_forever(loop: RecursiveLoop, adapter, markets, tracker=None, report_dir="data/reports", heartbeat="data/heartbeat.json"):
     Path(report_dir).mkdir(parents=True, exist_ok=True)
-    last_report = None
+    hb = Heartbeat(heartbeat, "loop").start()
+    last_report, last_tick = None, None
     while True:
         try:
-            n = tick(loop, adapter, markets, tracker=tracker)
+            hb.update("hourly tick", bars=loop.bars, last_tick=last_tick)
+            n = tick(loop, adapter, markets, tracker=tracker, progress=hb.progress)
+            last_tick = datetime.now(timezone.utc).isoformat()
             log.info("tick ok, new bars: %s", n)
             today = datetime.now(timezone.utc).date()
             if last_report != today:
                 Path(report_dir, f"{today}.md").write_text(digest(loop))
                 last_report = today
-            Path(heartbeat).write_text(json.dumps({"ok": True, "at": datetime.now(timezone.utc).isoformat(), "bars": loop.bars}))
+            hb.update("sleeping until next hour", bars=loop.bars, last_tick=last_tick)
         except Exception:                                    # noqa: BLE001  never die: log and retry next hour
             log.exception("tick failed")
-            Path(heartbeat).write_text(json.dumps({"ok": False, "at": datetime.now(timezone.utc).isoformat()}))
+            hb.update("tick failed, will retry", bars=loop.bars)
         now = datetime.now(timezone.utc)
         nxt = (now + timedelta(hours=1)).replace(minute=0, second=20, microsecond=0)
-        time.sleep(max(30, (nxt - now).total_seconds()))
+        end = time.time() + max(30, (nxt - now).total_seconds())
+        while time.time() < end:                              # sleep in slices so the watchdog sees us alive
+            hb.progress()
+            time.sleep(min(10, max(0, end - time.time())))

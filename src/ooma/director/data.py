@@ -70,6 +70,7 @@ class DataHub:
         self._hist: dict = {}
         self._live: dict = {}
         self._uni: tuple | None = None
+        self.on_progress = None                      # called while downloading so a watchdog knows we are alive
 
     # ---------- universe ----------
     def universe_info(self) -> dict:
@@ -115,6 +116,7 @@ class DataHub:
         if tf not in self._hist:
             frames = {}
             for m in self.universe():
+                self.on_progress and self.on_progress()
                 try:
                     df = self._market_frame(m, tf)
                     if df.height >= 1000:                      # newly listed coins lack history for a fair test
@@ -138,6 +140,7 @@ class DataHub:
             ref = self.a.candles(REF, tf, start, end)
             frames = {}
             for m in self.universe():
+                self.on_progress and self.on_progress()
                 try:
                     cn = ref if m == REF else self.a.candles(m, tf, start, end)
                     frames[m] = enrich(cn, tf, self.a.funding_history(m, start, end), ref)

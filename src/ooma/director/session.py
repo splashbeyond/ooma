@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from ..llm import BudgetExceeded, LLMClient, extract_json
-from ..scripts.binary import BinaryResult, Gates, holdout_ok, judge, pool, train_ok
+from ..scripts.binary import BinaryResult, Gates, holdout_ok, holdout_soft_ok, judge, pool, train_ok
 from ..scripts.registry import ScriptRecord, script_id
 from ..scripts.sandbox import LOOKBACK, SandboxRunner
 from ..scripts.validate import ScriptInvalid, validate
@@ -54,6 +54,7 @@ class Director:
         self.j, self.notes, self.llm, self.hub, self.sb = journal, notes, llm, hub, sandbox
         self.g, self.n_hyp, self.rounds, self.hf, self.top_k, self.state_dir = gates or Gates(), hypotheses, rounds, holdout_frac, top_k, state_dir
         self.focus, self.look_days = focus, look_window_days
+        self.hb = None                                          # optional Heartbeat: progress() is called at every step
         self.book = ForwardBook(journal.con)
 
     # ---------- context ----------
@@ -107,6 +108,7 @@ class Director:
     def _decisions(self, source, meta):
         out = {}
         for m in self._markets(meta):
+            self._p()
             df = self.hub.history(m, meta.timeframe)
             arrays = to_arrays(df)
             r = self.sb.run(source, arrays)
@@ -133,7 +135,12 @@ class Director:
         return f"independent_trades={r.n} hit_rate={f(r.hit_rate)} chance={f(r.chance)} net_return_per_trade={f(r.net_mean, 4)} p={f(r.p, 3)}"
 
     # ---------- LLM steps ----------
+    def _p(self):
+        if self.hb is not None:
+            self.hb.progress()
+
     def _ask(self, rep, user, **kw):
+        self._p()
         rep.llm_calls += 1
         return self.llm.chat([{"role": "system", "content": prompts.SYSTEM}, {"role": "user", "content": user}], **kw)
 
@@ -231,8 +238,14 @@ class Director:
         ho = self._judge(dec, rec.horizon_bars, "holdout")
         rep.holdout_tested += 1
         rec.evals.append({"stage": "holdout", **ho.dump()})
-        if holdout_ok(ho, self.g, looks):
-            rec.stage, rec.reason = "incubating", "passed holdout; forward paper testing"
+        strict = holdout_ok(ho, self.g, looks)
+        soft = self.g.soft_holdout and holdout_soft_ok(ho, self.g)
+        if (strict or soft) and self.n_incubating() >= self.g.max_incubating:
+            rec.stage, rec.reason = "rejected_holdout", "passed holdout but all paper-trading slots are full"
+            rep.rejected_holdout += 1
+        elif strict or soft:
+            rec.stage = "incubating"
+            rec.reason = "passed holdout; paper trading" if strict else "plausible on holdout (soft gate); paper trading decides"
             rep.incubating.append(rec.name)
         else:
             rec.stage, rec.reason = "rejected_holdout", "failed holdout"
@@ -256,6 +269,23 @@ class Director:
             self.notes.add(author="llm", kind="lesson", text=t[:400])
             rep.notes += 1
 
+    def n_incubating(self) -> int:
+        return sum(1 for r in self.j.all("scripts") if r.stage == "incubating")
+
+    def live_summary(self) -> list:
+        """Paper-trading scoreboard for every live script: forward trades, hit rate vs chance, net return after costs."""
+        out = []
+        for r in self.j.all("scripts"):
+            if r.stage not in ("incubating", "active"):
+                continue
+            res = self.book.result(r.id, r.timeframe, r.horizon_bars)
+            out.append({"name": r.name, "stage": r.stage, "age_h": round((datetime.now(timezone.utc) - r.created_at).total_seconds() / 3600, 1),
+                        "timeframe": r.timeframe, "horizon": r.horizon_bars, "paper_trades": res.n,
+                        "hit": None if res.hit_rate is None else round(res.hit_rate, 3), "chance": None if res.chance is None else round(res.chance, 3),
+                        "net_per_trade_pct": None if res.net_mean is None else round(res.net_mean * 100, 3),
+                        "paper_pnl_pct": None if res.net_mean is None else round(res.net_mean * res.n * 100, 2), "p": round(res.p, 4)})
+        return sorted(out, key=lambda x: -(x["paper_pnl_pct"] or -99))
+
     # ---------- forward testing (code only) ----------
     def tick(self) -> dict:
         """Hourly: ask each live script its two questions on the newest closed bar, resolve old calls, apply forward verdicts."""
@@ -266,6 +296,7 @@ class Director:
             ms = self._markets(type("M", (), {"markets": r.markets, "timeframe": r.timeframe})())
             for m in ms:
                 if (m, r.timeframe) not in frames:
+                    self._p()
                     frames[(m, r.timeframe)] = to_arrays(self.hub.live(m, r.timeframe))
                 arrays = frames[(m, r.timeframe)]
                 t_last = int(arrays["t"][-1])
@@ -287,6 +318,10 @@ class Director:
                 self.notes.add(author="code", kind="lesson", text=f"{r.name} earned 'active' on forward paper data: {self._fmt(res)}", strategy=r.name)
             elif v == "retire":
                 r.stage, r.reason = "retired", "forward paper evidence against: " + self._fmt(res)
+                stats["retired"].append(r.name)
+            elif v == "wait" and r.stage == "incubating" and (
+                    (datetime.now(timezone.utc) - r.created_at).total_seconds() / 86400 > self.g.fwd_max_days or res.n >= 3 * self.g.fwd_min_n):
+                r.stage, r.reason = "retired", "no forward edge after patience window: " + self._fmt(res)   # frees the paper-trading slot
                 stats["retired"].append(r.name)
             self.j.put("scripts", r.id, r)
         return stats
