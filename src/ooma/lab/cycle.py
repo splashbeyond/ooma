@@ -46,7 +46,7 @@ class Lab:
     def _save(self, spec, stage, origin, evals, reason="", parent=None):
         self.j.put("strategy_records", spec.digest(), StrategyRecord(
             id=spec.digest(), spec=spec, stage=stage, created_at=datetime.now(timezone.utc),
-            origin=origin, parent_id=parent, evaluations=[e.dump() for e in evals], reason=reason))
+            origin=origin, parent_id=parent, model=(getattr(self.ideator, 'model', None) if origin == 'llm' else None), evaluations=[e.dump() for e in evals], reason=reason))
 
     def discover(self, start: datetime, end: datetime, markets: list[str], timeframes: list[str],
                  n_ideas: int = 30) -> LabReport:

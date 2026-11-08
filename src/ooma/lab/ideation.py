@@ -102,11 +102,71 @@ class TemplateIdeator:
         return out
 
 
+PROMPT = """You are the strategy inventor inside ooma, an autonomous trading research system on Hyperliquid perps.
+MISSION: {mission}
+
+Invent {n} NEW, DIVERSE strategies as JSON. Output ONLY a JSON array of objects, no prose.
+Each object:
+{{"family": str, "hypothesis": "one sentence on WHY this makes money (who is on the other side?)",
+ "timeframe": "1h"|"4h"|"1d", "markets": {markets},
+ "long_when": [{{"lhs": F, "op": OP, "rhs": F_or_number}}, ...],   // ALL conditions must hold
+ "short_when": [same shape, may be empty],
+ "stop_atr": 0.5-6, "target_r": 0.5-6, "horizon_bars": 1-200}}
+OP is one of: ">", "<", "cross_above", "cross_below".
+F (feature) is one of: open high low close volume, or NAME_N with N in 2..400 where NAME is
+ema sma atr rsi ret z hh ll volx   (ret_N = N-bar return; z_N = z-score of close vs N-bar mean;
+hh_N/ll_N = highest high/lowest low of the PRIOR N bars; volx_N = volume / N-bar avg volume).
+Example F: ema_20, rsi_14, ret_6, z_50, hh_20, volx_20. Numbers on the right are plain numbers.
+
+Rules: costs are ~13 bps round trip, so strategies need real edge after fees. Prefer regime filters
+(trend/volatility conditions), asymmetric setups, and ideas unlike the ones already tried.
+Do NOT repeat these already-tested families/ideas blindly: {tried}
+
+What ooma has learned so far (notebook):
+{notes}
+"""
+
+
 class LLMIdeator:
-    """TODO: prompt = MISSION + StrategySpec.model_json_schema() + notebook (supported/refuted lessons)
-    + per-family stats + list of already-tried digests. Parse JSON -> StrategySpec; invalid output is dropped.
-    Ideas to steer it toward: regime filters, volatility squeezes, time-of-day/session effects, funding and
-    OI extremes (needs context features), cross-market ratio/pairs (needs multi-market features), wallet
-    cohort signals (needs participants features), basis/funding carry (needs spot adapter)."""
-    def __init__(self, provider): self.provider = provider
-    def propose(self, n, markets, timeframes, seeds, rng): raise NotImplementedError
+    """Open-ended invention by an LLM. Output is validated by StrategySpec; anything invalid is dropped.
+    The LLM never runs code and never sees keys; the lab's honest testing decides what survives."""
+
+    def __init__(self, client, notes=None, journal=None, per_call: int = 8):
+        self.client, self.notes, self.j, self.per_call = client, notes, journal, per_call
+        self.model = client.model
+        self.dropped = 0
+
+    def _context(self):
+        notes = "(none yet)"
+        if self.notes:
+            ns = self.notes.context_for(None, None, k=12)
+            if ns:
+                notes = "\n".join(f"- [{n.status}] {n.text}" for n in ns)
+        tried = "(nothing)"
+        if self.j:
+            recs = self.j.all("strategy_records")
+            from collections import Counter
+            c = Counter((r.spec.family, r.stage) for r in recs)
+            tried = "; ".join(f"{f}/{st} x{k}" for (f, st), k in c.most_common(15)) or tried
+        return notes, tried
+
+    def propose(self, n, markets, timeframes, seeds, rng):
+        out, calls = [], 0
+        notes, tried = self._context()
+        while len(out) < n and calls < max(2, n // self.per_call + 2):
+            calls += 1
+            want = min(self.per_call, n - len(out))
+            prompt = PROMPT.format(mission=MISSION, n=want, markets=markets, tried=tried, notes=notes)
+            try:
+                raw = self.client.chat_json([{"role": "user", "content": prompt}], purpose="ideate", max_tokens=12000)
+            except Exception:                                   # noqa: BLE001  budget/outage: return what we have
+                break
+            for item in raw if isinstance(raw, list) else [raw]:
+                try:
+                    item["markets"] = [m for m in item.get("markets", markets) if m in markets] or markets
+                    if item.get("timeframe") not in timeframes:
+                        item["timeframe"] = timeframes[0]
+                    out.append((StrategySpec.model_validate(item), "llm"))
+                except Exception:                               # noqa: BLE001
+                    self.dropped += 1
+        return out[:n]

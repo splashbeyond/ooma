@@ -83,5 +83,6 @@ class StrategyRecord(BaseModel):
     created_at: datetime
     origin: Literal["template", "llm", "mutation"] = "template"
     parent_id: str | None = None
+    model: str | None = None                       # which LLM invented it (origin == "llm")
     evaluations: list[dict] = []
     reason: str = ""

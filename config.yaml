@@ -44,3 +44,7 @@ predict:
   alpha: 0.05               # Bonferroni-adjusted significance for trust
   cap: 500                  # max live predictors per horizon
   spawn_per_day: 25
+llm:
+  model: z-ai/glm-5.3-flash          # OpenRouter; ~$0.03/M in, $0.08/M out
+  fallbacks: [z-ai/glm-5.3]
+  daily_budget_usd: 1.0              # hard stop for unattended runs
