@@ -1,0 +1,26 @@
+version: 0
+coins: [BTC, ETH, SOL, HYPE]
+timeframes: [1h, 4h, 1d]
+paper:
+  start_equity: 10000
+  taker_fee_bps: 4.5
+  extra_slippage_bps: 2
+  exec_delay_sec: 3
+risk:
+  max_risk_per_trade: 0.01
+  max_leverage: 3
+  max_positions: 3
+  daily_loss_cap: 0.03
+  drawdown_kill: 0.10
+  min_confidence: 0.6
+price_action:
+  ma_periods: [20, 50, 200]
+  ma_type: ema
+  atr_period: 14
+  pivot_lookback: 5
+  level_cluster_atr: 0.5
+  range_min_bars: 20
+  range_max_atr: 3.0
+  breakout_atr: 0.5
+  breakout_vol_mult: 1.5
+  retest_bars: 10
