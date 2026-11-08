@@ -3,6 +3,8 @@
 Market-agnostic AI analyst, v0 on Hyperliquid perps, paper only. Spec: PRD.md (OOMA_PRD).
 
 ## Now
+- Strategy lab built (2026-11-08): ooma invents/tests/incubates strategies. `ooma lab`, `ooma lab-status`. First real run: 0 survivors (honest). 21 tests.
+- Next: milestone 2 price action is still optional; higher value now is richer features (funding/OI, cross-market, wallets) + LLMIdeator, + paper loop to run incubating strategies forward.
 - Outline in code done (2026-11-08): see ARCHITECTURE.md. 15 tests pass. All strategies are stubs; replay, grading, notes, learning cycle are real.
 - Next: milestone 2 price action, then first real strategy (range_breakout or trend_pullback) so backtest + learn run on real data.
 - Milestone 1 done (2026-11-08): adapter interface + Hyperliquid adapter, 5 tests pass incl. live check on BTC/ETH/SOL/HYPE.

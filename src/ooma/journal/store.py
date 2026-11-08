@@ -7,10 +7,11 @@ from typing import TypeVar
 import duckdb
 from pydantic import BaseModel
 
+from ..spec import StrategyRecord
 from ..types import Grade, Note, Setup, Trade
 
 M = TypeVar("M", bound=BaseModel)
-TABLES = {"setups": Setup, "trades": Trade, "grades": Grade, "notes": Note}
+TABLES = {"setups": Setup, "trades": Trade, "grades": Grade, "notes": Note, "strategy_records": StrategyRecord}
 
 
 class Journal:

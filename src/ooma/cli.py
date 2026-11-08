@@ -75,6 +75,44 @@ def learn():
 
 
 @app.command()
+def lab(days: int = 540, ideas: int = 40, timeframes: str = "1h,4h", seed: int = 0):
+    """Invent strategies, test them honestly (train/holdout), and start forward paper tests on survivors."""
+    import random
+    from datetime import datetime, timedelta, timezone
+
+    import yaml
+
+    from .adapters.hyperliquid import HyperliquidAdapter
+    from .lab.cycle import Lab
+    from .lab.data import CachedLoader
+    from .lab.ideation import TemplateIdeator
+
+    cfg = yaml.safe_load(open("config.yaml"))
+    tfs, markets = timeframes.split(","), cfg["coins"]
+    end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=days)
+    loader = CachedLoader(HyperliquidAdapter())
+    for m in markets:
+        for tf in tfs:
+            loader.prefetch(m, tf, start - timedelta(days=60), end)
+    j = _journal()
+    L = Lab(j, NoteStore(j), loader, TemplateIdeator(), seed=seed or random.randint(1, 10**6))
+    rep = L.discover(start, end, markets, tfs, n_ideas=ideas)
+    rep = L.review_live(rep)
+    typer.echo(f"tried {rep.tried} (dupes {rep.duplicates}) | rejected in train {rep.rejected_train} | "
+               f"holdout-tested {rep.holdout_tested} | rejected in holdout {rep.rejected_holdout}")
+    typer.echo(f"incubating: {rep.incubating or 'none'} | promoted: {rep.promoted or 'none'} | retired: {rep.retired or 'none'}")
+
+
+@app.command("lab-status")
+def lab_status():
+    """Every invented strategy and where it stands."""
+    for r in sorted(_journal().all("strategy_records"), key=lambda r: r.stage):
+        ev = r.evaluations[-1] if r.evaluations else {}
+        typer.echo(f"{r.stage:17} {r.spec.name:24} {r.spec.timeframe} n={ev.get('n')} avgR={ev.get('avg_r')} {r.reason}")
+
+
+@app.command()
 def scorecard():
     """Per-strategy stats with n and CI, vs baselines. (milestone 7)"""
     typer.echo("scorecard: not implemented yet")

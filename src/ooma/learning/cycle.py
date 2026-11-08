@@ -5,7 +5,7 @@
   3. REFLECT    write notes: code rules always, LLM post-mortems if enabled (rules implemented)
   4. TEST       turn open hypotheses into backtests; train vs holdout       (stub)
   5. PROPOSE    queue config/strategy changes with evidence                 (stub)
-  6. APPROVE    human approves; approved change bumps version, logged       (stub, manual by design)
+  6. APPROVE    human approves risk/config changes; strategies auto-advance on paper via lab/ (see ARCHITECTURE.md)
 
 Guardrails: nothing self-modifies. Risk rules are out of reach. Findings with n < 30 are not acted on.
 """

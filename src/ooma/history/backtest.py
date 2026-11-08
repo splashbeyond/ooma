@@ -48,6 +48,8 @@ class Backtester:
         res = BacktestResult()
         for market in markets:
             candles = self.loader(market, timeframe, start - step * self.warmup, end)
+            batches = {st.name: st.scan_batch(candles, market, timeframe)
+                       for st in strategies if hasattr(st, "scan_batch")}
             busy_until: dict[str, datetime] = {}          # one open trade per strategy per market
             for i in range(self.warmup, candles.height - 1):
                 as_of = candles["t"][i] + step             # close time of bar i
@@ -56,9 +58,12 @@ class Backtester:
                 for strat in strategies:
                     if busy_until.get(strat.name, as_of) > as_of:
                         continue
-                    ctx = ScanContext(market, timeframe, as_of, hist, findings,
-                                      params=(params or {}).get(strat.name, {}))
-                    for setup in strat.scan(ctx):
+                    if strat.name in batches:
+                        found = batches[strat.name].get(as_of, [])
+                    else:
+                        found = strat.scan(ScanContext(market, timeframe, as_of, hist, findings,
+                                                       params=(params or {}).get(strat.name, {})))
+                    for setup in found:
                         trade = simulate(setup, candles.slice(i + 1), risk_usd=self.risk_usd)
                         if trade is None:
                             continue

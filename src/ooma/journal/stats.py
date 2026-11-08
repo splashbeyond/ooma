@@ -26,3 +26,12 @@ def summarize(rs: list[float], n_boot: int = 2000, seed: int = 0) -> Stats:
     lo, hi = np.percentile(means, [2.5, 97.5])
     return Stats(n=n, hit_rate=float((a > 0).mean()), avg_r=float(a.mean()),
                  ci_low=float(lo), ci_high=float(hi), sufficient=n >= MIN_N)
+
+
+def p_value_positive(rs: list[float], n_boot: int = 4000, seed: int = 0) -> float:
+    """One-sided bootstrap p-value for 'true mean R <= 0'. Small = real edge is likely. Floor 1/n_boot."""
+    if not rs:
+        return 1.0
+    a = np.asarray(rs, dtype=float)
+    means = np.random.default_rng(seed).choice(a, size=(n_boot, len(a)), replace=True).mean(axis=1)
+    return float(max((means <= 0).mean(), 1 / n_boot))
