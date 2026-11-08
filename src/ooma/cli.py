@@ -210,8 +210,9 @@ def _director():
     c, d = cfg["llm"], cfg.get("director", {})
     llm = LLMClient(c["model"], c["fallbacks"], con=j.con, daily_budget_usd=c["daily_budget_usd"])
     sb = SandboxRunner(isolated_user=os.environ.get("OOMA_SANDBOX_USER") or None)
-    hub = DataHub(HyperliquidAdapter(), markets=cfg["coins"])
-    return Director(j, notes, llm, hub, sb, gates=Gates(), hypotheses=d.get("hypotheses", 4), rounds=d.get("rounds", 2)), j, d
+    focus = d.get("focus") or None
+    hub = DataHub(HyperliquidAdapter(), markets=focus or cfg["coins"])
+    return Director(j, notes, llm, hub, sb, gates=Gates(), hypotheses=d.get("hypotheses", 4), rounds=d.get("rounds", 2), focus=focus), j, d
 
 
 @app.command()
@@ -224,7 +225,7 @@ def direct():
 
 @app.command("director-run")
 def director_run():
-    """Run the director forever: hourly forward-testing of live scripts, a research session every few hours."""
+    """Run the director forever: research sessions back to back, plus an hourly forward-test tick for live scripts."""
     import json
     import logging
     import time
@@ -234,25 +235,30 @@ def director_run():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     log = logging.getLogger("ooma.director")
     d, j, cfg = _director()
-    every = timedelta(hours=cfg.get("session_every_h", 6))
-    last_session = None
+    pause = cfg.get("pause_s", 120)
     Path("data/reports").mkdir(parents=True, exist_ok=True)
+
+    def next_tick_time():
+        return (datetime.now(timezone.utc) + timedelta(hours=1)).replace(minute=5, second=0, microsecond=0)
+    next_tick = datetime.now(timezone.utc)
     while True:
+        sleep_s = pause
         try:
             now = datetime.now(timezone.utc)
-            stats = d.tick()
-            log.info("forward tick: %s", stats)
-            if last_session is None or now - last_session >= every:
-                rep = d.run_session()
-                last_session = datetime.now(timezone.utc)
-                log.info("session: %s", rep)
-                with open(f"data/reports/director-{now.date()}.md", "a") as f:
-                    f.write(f"\n## session {rep.session}\n{rep}\n")
-            Path("data/director_heartbeat.json").write_text(json.dumps({"ok": True, "at": datetime.now(timezone.utc).isoformat()}))
+            if now >= next_tick:
+                log.info("forward tick: %s", d.tick())
+                next_tick = next_tick_time()
+            rep = d.run_session()
+            log.info("session: %s", rep)
+            with open(f"data/reports/director-{now.date()}.md", "a") as f:
+                f.write(f"\n## session {rep.session}\n{rep}\n")
+            if "budget" in rep.stopped.lower():
+                sleep_s = 900                                  # out of daily LLM budget: wait, keep forward-testing
+            Path("data/director_heartbeat.json").write_text(json.dumps({"ok": True, "at": datetime.now(timezone.utc).isoformat(), "looks_7d": d.recent_looks()}))
         except Exception:                                    # noqa: BLE001  never die
             log.exception("director cycle failed")
-        nxt = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(minute=5, second=0, microsecond=0)
-        time.sleep(max(60, (nxt - datetime.now(timezone.utc)).total_seconds()))
+            sleep_s = 300
+        time.sleep(sleep_s)
 
 
 @app.command("scripts")

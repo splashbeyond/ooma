@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -32,6 +32,7 @@ class SessionReport:
     proposed: int = 0
     written: int = 0
     rejected_static: int = 0
+    duplicates: int = 0
     rejected_train: int = 0
     holdout_tested: int = 0
     rejected_holdout: int = 0
@@ -48,14 +49,25 @@ def code_block(text: str) -> str:
 
 class Director:
     def __init__(self, journal, notes, llm: LLMClient, hub: DataHub, sandbox: SandboxRunner, *,
-                 gates: Gates | None = None, hypotheses=4, rounds=2, holdout_frac=0.25, top_k=3, state_dir="data"):
+                 gates: Gates | None = None, hypotheses=4, rounds=2, holdout_frac=0.25, top_k=3, state_dir="data",
+                 focus: list | None = None, look_window_days: int = 7):
         self.j, self.notes, self.llm, self.hub, self.sb = journal, notes, llm, hub, sandbox
         self.g, self.n_hyp, self.rounds, self.hf, self.top_k, self.state_dir = gates or Gates(), hypotheses, rounds, holdout_frac, top_k, state_dir
+        self.focus, self.look_days = focus, look_window_days
         self.book = ForwardBook(journal.con)
 
     # ---------- context ----------
+    def recent_looks(self) -> int:
+        """Holdout looks in the last N days across ALL sessions. Every look spends statistical power on the same data."""
+        cut = datetime.now(timezone.utc) - timedelta(days=self.look_days)
+        return sum(1 for r in self.j.all("scripts") if r.created_at >= cut and any(e.get("stage") == "holdout" for e in r.evals))
+
     def context(self) -> str:
         parts = []
+        if self.focus:
+            parts.append(f"FOCUS: research ONLY these markets: {self.focus}. Set MARKETS = {self.focus} in every script. "
+                         "HYPE is Hyperliquid's own exchange token: relatively thin liquidity, high volatility, flow-driven. "
+                         "Do not assume any HYPE-specific mechanism is true; hypothesise it and let the data judge.")
         try:
             parts.append("Live prediction loop state:\n" + open(f"{self.state_dir}/loop_state.json").read()[:2500])
         except OSError:
@@ -74,7 +86,7 @@ class Director:
     # ---------- evaluation (code only) ----------
     def _decisions(self, source, meta):
         out = {}
-        for m in meta.markets:
+        for m in (self.focus or meta.markets):
             df = self.hub.history(m, meta.timeframe)
             arrays = to_arrays(df)
             r = self.sb.run(source, arrays)
@@ -135,7 +147,7 @@ class Director:
                     finalists.append(best)
             finalists.sort(key=lambda x: x[0], reverse=True)
             for score, rec, dec in finalists[: self.top_k]:
-                self._holdout(rep, rec, dec, looks=min(len(finalists), self.top_k))
+                self._holdout(rep, rec, dec, looks=max(min(len(finalists), self.top_k), self.recent_looks() + 1))
             for score, rec, dec in finalists[self.top_k:]:
                 rec.stage, rec.reason = "rejected_train", "passed train but outranked; holdout not spent"
                 self.j.put("scripts", rec.id, rec)
@@ -150,7 +162,7 @@ class Director:
     def _record(self, sid, h, src, meta, stage, evals, reason="", parent=None, name=None):
         rec = ScriptRecord(id=script_id(src), name=name or h["name"], hypothesis=h["hypothesis"], source=src,
                            horizon_bars=meta.horizon_bars if meta else 0, timeframe=meta.timeframe if meta else str(h["timeframe"]),
-                           markets=meta.markets if meta else [], stage=stage, created_at=datetime.now(timezone.utc), session=sid,
+                           markets=(self.focus or meta.markets) if meta else [], stage=stage, created_at=datetime.now(timezone.utc), session=sid,
                            model=self.llm.model, parent_id=parent, evals=evals, reason=reason)
         self.j.put("scripts", rec.id, rec)
         return rec
@@ -159,6 +171,9 @@ class Director:
         """Write -> validate -> test on train -> up to `rounds` refinements from TRAIN metrics. Returns (score, record, decisions)."""
         src, meta = self._write(rep, h)
         rep.written += 1
+        if not isinstance(meta, str) and self.j.get("scripts", script_id(src)) is not None:
+            rep.duplicates += 1                              # already tested: do not spend a look or a sandbox run on it
+            return None
         if isinstance(meta, str):
             self._record(sid, h, src, None, "rejected_static", [], meta)
             rep.rejected_static += 1
@@ -182,7 +197,7 @@ class Director:
             try:
                 text = self._ask(rep, prompts.REFINE.format(metrics=self._fmt(tr)) + "\n\nCurrent script:\n```python\n" + src + "```", purpose="refine", max_tokens=12000)
                 new_src = code_block(text)
-                if script_id(new_src) == rec.id:
+                if script_id(new_src) == rec.id or self.j.get("scripts", script_id(new_src)) is not None:
                     break
                 new_meta = validate(new_src)
             except ScriptInvalid:

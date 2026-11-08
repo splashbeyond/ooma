@@ -164,3 +164,24 @@ def test_forward_calls_resolve_correctly():
 def pytest_approx(x):
     import pytest
     return pytest.approx(x)
+
+
+def test_focus_restricts_markets_and_cumulative_looks_tighten_the_gate():
+    d, j, llm = director(frame(5000, 1, 0.4), [MOMO])
+    d.focus = ["ETH"]
+    rep = d.run_session()
+    rec = next(r for r in j.all("scripts"))
+    assert rec.markets == ["ETH"]
+    n0 = d.recent_looks()
+    assert n0 >= 1                                             # the holdout look was counted
+    # the same script again is skipped entirely: no sandbox run, no extra look
+    d.llm.scripts = [MOMO]
+    rep2 = d.run_session()
+    assert rep2.duplicates >= 1 and d.recent_looks() == n0
+
+
+def test_many_looks_make_a_marginal_script_fail_the_holdout():
+    from ooma.scripts.binary import BinaryResult, holdout_ok, binom_sf
+    r = BinaryResult(n=60, hits=40, hit_rate=40 / 60, chance=0.5, p=binom_sf(40, 60, 0.5), net_mean=0.003, net_t=2.0)
+    assert holdout_ok(r, Gates(), looks=2)
+    assert not holdout_ok(r, Gates(), looks=140)               # a week of back-to-back sessions: marginal results no longer pass
