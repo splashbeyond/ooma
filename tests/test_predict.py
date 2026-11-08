@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pytest
 import polars as pl
 
 from ooma.journal.notes import NoteStore
@@ -164,3 +165,14 @@ def test_noise_does_not_fake_a_learning_curve():
     loop.warm_start({"ETH": df}, "x"); loop.process_market("ETH", df, persist=False)
     s = loop.preds[1]["ensemble@1"].stats
     assert abs(s.mean_d()) < 0.004 and s.z(1) < 3
+
+
+def test_book_summary_depth_and_imbalance():
+    from ooma.adapters.base import BookSnapshot
+    from ooma.predict.store import book_summary
+    b = BookSnapshot("X", T0, bids=[(99.95, 10.0), (99.7, 50.0), (99.0, 100.0)], asks=[(100.05, 5.0), (101.0, 100.0)])
+    d = book_summary(b)
+    assert d["spread_bps"] == pytest.approx(10.0, rel=1e-3)
+    assert d["bid_10"] == pytest.approx(99.95 * 10) and d["ask_10"] == pytest.approx(100.05 * 5)
+    assert d["imb_10"] == pytest.approx((999.5 - 500.25) / (999.5 + 500.25))
+    assert d["bid_50"] > d["bid_10"]                                   # wider window sees more depth

@@ -45,7 +45,7 @@ def test_validator_rejects_unsafe_or_nonconforming(bad):
 
 def test_validator_accepts_good_script():
     m = validate(GOOD)
-    assert m.horizon_bars == 1 and m.timeframe == "1h" and "ETH" in m.markets
+    assert m.horizon_bars == 1 and m.timeframe == "1h" and m.markets == ["ALL"]
 
 
 def arrays(n=900, seed=0, phi=0.3):

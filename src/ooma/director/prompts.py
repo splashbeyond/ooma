@@ -1,7 +1,7 @@
 from ..scripts.sandbox import LOOKBACK
 from .data import DESCRIPTION
 
-MISSION = "Make more than you lose, after fees and slippage, on Hyperliquid perps (BTC, ETH, SOL, HYPE). Paper trading only."
+MISSION = "Make more than you lose, after fees and slippage, across the Hyperliquid perpetuals market (the most liquid coins, tested together). Paper trading only."
 
 CONTRACT = f"""A strategy is ONE Python script that answers two yes/no questions on every closed bar:
   direction: True if the price will be HIGHER after HORIZON_BARS bars, False if LOWER
@@ -16,7 +16,7 @@ import numpy as np
 from ooma_lib import ema, rsi
 HORIZON_BARS = 4          # int 1..200
 TIMEFRAME = "1h"          # "1h" | "4h" | "1d"
-MARKETS = "ALL"           # or a list like ["BTC", "ETH"]
+MARKETS = "ALL"           # all liquid Hyperliquid perps (recommended), or a list like ["BTC", "ETH"]
 def decide(bars):
     c = bars["close"]
     ...
@@ -38,7 +38,8 @@ PROPOSE = """Current knowledge:
 {context}
 
 Propose {n} DIFFERENT hypotheses to test this session. Avoid repeating ideas already tried (listed above). Mix horizons and mechanisms
-(trend, reversion, volatility, positioning/funding, zones, cross-market, calendar/time-of-day, wallet positioning if the columns exist).
+(trend, reversion, volatility, positioning/funding, zones, calendar/time-of-day) and use the CROSS-SECTIONAL columns: ranks versus the whole
+market (xs_rank_ret_24, xs_rank_funding, xs_rank_vol), market direction (mkt_ret_6/24), lead-lag against BTC, dispersion and crowding regimes.
 Reply with ONLY a JSON array of objects:
 [{{"name": "snake_case_name", "hypothesis": "one sentence", "edge_source": "who is on the other side and why they lose",
    "timeframe": "1h|4h|1d", "horizon_bars": 4, "markets": "ALL"}}]"""

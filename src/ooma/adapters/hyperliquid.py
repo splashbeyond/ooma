@@ -77,6 +77,28 @@ class HyperliquidAdapter:
             data["trades"].append(int(c["n"]))
         return pl.DataFrame(data, schema=schema).unique("t").sort("t")
 
+    def all_contexts(self) -> list[MarketContext]:
+        """Funding, open interest, premium, prices, volume for EVERY listed perp in one request."""
+        meta, ctxs = self._post({"type": "metaAndAssetCtxs"})
+        now = datetime.now(timezone.utc)
+        out = []
+        for u, c in zip(meta["universe"], ctxs):
+            if u.get("isDelisted"):
+                continue
+            try:
+                out.append(MarketContext(market=u["name"], as_of=now, funding_rate=float(c["funding"]),
+                                         open_interest=float(c["openInterest"]), mark_price=float(c["markPx"]),
+                                         oracle_price=float(c["oraclePx"]), premium=float(c["premium"] or 0),
+                                         day_notional_volume=float(c["dayNtlVlm"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return out
+
+    def top_markets(self, n: int = 15, min_day_volume: float = 30e6) -> list[str]:
+        """The most liquid perps by 24h notional volume. Liquidity matters: thin coins cost far more than our cost model assumes."""
+        ctxs = [c for c in self.all_contexts() if c.day_notional_volume >= min_day_volume]
+        return [c.market for c in sorted(ctxs, key=lambda c: -c.day_notional_volume)[:n]]
+
     def context(self, market: str) -> MarketContext:
         meta, ctxs = self._post({"type": "metaAndAssetCtxs"})
         for u, c in zip(meta["universe"], ctxs):

@@ -19,7 +19,8 @@ FORBIDDEN_ATTRS = {"load", "save", "savez", "savez_compressed", "savetxt", "load
                    "memmap", "ctypeslib", "f2py", "distutils", "testing", "system", "popen", "DataSource", "show_config",
                    "get_include", "fromregex", "frombuffer_ex"}
 TIMEFRAMES = {"1h", "4h", "1d"}
-MARKETS = {"BTC", "ETH", "SOL", "HYPE"}
+import re
+TICKER = re.compile(r"^[A-Za-z0-9]{1,12}$")
 MAX_BYTES = 30_000
 
 
@@ -93,7 +94,7 @@ def validate(source: str) -> ScriptMeta:
         raise ScriptInvalid("HORIZON_BARS must be an int in 1..200")
     if tf not in TIMEFRAMES:
         raise ScriptInvalid(f"TIMEFRAME must be one of {sorted(TIMEFRAMES)}")
-    markets = sorted(MARKETS) if mk == "ALL" else mk
-    if not isinstance(markets, list) or not markets or any(m not in MARKETS for m in markets):
-        raise ScriptInvalid(f"MARKETS must be 'ALL' or a list drawn from {sorted(MARKETS)}")
+    markets = ["ALL"] if mk == "ALL" else mk
+    if not isinstance(markets, list) or not markets or not all(isinstance(m, str) and TICKER.match(m) for m in markets):
+        raise ScriptInvalid("MARKETS must be 'ALL' or a list of tickers like [\"BTC\", \"ETH\"]")
     return ScriptMeta(h, tf, list(markets))

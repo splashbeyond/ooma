@@ -47,11 +47,19 @@ def tick(loop: RecursiveLoop, adapter, markets, lookback_h: int = 900, tracker=N
     if not any(len(P) for P in loop.preds.values()):
         loop.warm_start(frames, born=end.isoformat())
     n = {m: loop.process_market(m, fr, persist=True) for m, fr in frames.items()}
-    for m in markets:
+    try:                                                      # Hyperliquid has no history for OI/premium: record EVERY coin from now on
+        ctxs = adapter.all_contexts()
+        for c in ctxs:
+            loop.s.log_context(c)
+        liquid = [c.market for c in sorted(ctxs, key=lambda c: -c.day_notional_volume)[:20]]
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("market-wide context log failed: %s", e)
+        liquid = list(markets)
+    for m in liquid:                                          # order-book depth/imbalance for the liquid coins
         try:
-            loop.s.log_context(adapter.context(m))          # OI has no history API: record it from now on
+            loop.s.log_book(m, adapter.book(m))
         except Exception as e:                               # noqa: BLE001
-            log.warning("context log failed for %s: %s", m, e)
+            log.warning("book log failed for %s: %s", m, e)
     loop.save()
     Path("data").mkdir(exist_ok=True)
     Path("data/loop_state.json").write_text(json.dumps(state_summary(loop)))

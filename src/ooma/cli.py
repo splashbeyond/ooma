@@ -211,7 +211,7 @@ def _director():
     llm = LLMClient(c["model"], c["fallbacks"], con=j.con, daily_budget_usd=c["daily_budget_usd"])
     sb = SandboxRunner(isolated_user=os.environ.get("OOMA_SANDBOX_USER") or None)
     focus = d.get("focus") or None
-    hub = DataHub(HyperliquidAdapter(), markets=focus or cfg["coins"])
+    hub = DataHub(HyperliquidAdapter(), markets=focus, top_n=d.get("top_n", 17))
     return Director(j, notes, llm, hub, sb, gates=Gates(), hypotheses=d.get("hypotheses", 4), rounds=d.get("rounds", 2), focus=focus), j, d
 
 

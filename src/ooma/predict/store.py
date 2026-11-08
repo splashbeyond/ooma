@@ -17,6 +17,8 @@ class PredictStore:
                     "horizon INT, price0 DOUBLE, features VARCHAR, preds VARCHAR, base_p DOUBLE, ens_p DOUBLE, "
                     "label BOOLEAN, ret DOUBLE, resolved_at VARCHAR)")
         con.execute("CREATE TABLE IF NOT EXISTS meta (k VARCHAR PRIMARY KEY, v VARCHAR)")
+        con.execute("CREATE TABLE IF NOT EXISTS book_log (market VARCHAR, t VARCHAR, mid DOUBLE, spread_bps DOUBLE, "
+                    "bid_usd_10bp DOUBLE, ask_usd_10bp DOUBLE, bid_usd_50bp DOUBLE, ask_usd_50bp DOUBLE, imb_10bp DOUBLE, imb_50bp DOUBLE)")
         con.execute("CREATE TABLE IF NOT EXISTS context_log (market VARCHAR, t VARCHAR, funding DOUBLE, "
                     "open_interest DOUBLE, premium DOUBLE, mark DOUBLE, day_volume DOUBLE)")
 
@@ -61,3 +63,26 @@ class PredictStore:
         self.con.execute("INSERT INTO context_log VALUES (?,?,?,?,?,?,?)",
                          [ctx.market, ctx.as_of.isoformat(), ctx.funding_rate, ctx.open_interest,
                           ctx.premium, ctx.mark_price, ctx.day_notional_volume])
+
+
+def book_summary(book) -> dict:
+    """Depth (USD) and imbalance within 10 and 50 bps of mid. imbalance = (bid - ask) / (bid + ask), -1 sellers .. +1 buyers."""
+    mid = book.mid
+    out = {"mid": mid, "spread_bps": (book.asks[0][0] - book.bids[0][0]) / mid * 1e4}
+    for bp in (10, 50):
+        lo, hi = mid * (1 - bp / 1e4), mid * (1 + bp / 1e4)
+        bid = sum(px * sz for px, sz in book.bids if px >= lo)
+        ask = sum(px * sz for px, sz in book.asks if px <= hi)
+        out[f"bid_{bp}"], out[f"ask_{bp}"] = bid, ask
+        out[f"imb_{bp}"] = (bid - ask) / (bid + ask) if bid + ask > 0 else 0.0
+    return out
+
+
+def log_book(self, market, book):
+    d = book_summary(book)
+    self.con.execute("INSERT INTO book_log VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     [market, book.time.isoformat(), d["mid"], d["spread_bps"], d["bid_10"], d["ask_10"], d["bid_50"], d["ask_50"],
+                      d["imb_10"], d["imb_50"]])
+
+
+PredictStore.log_book = log_book

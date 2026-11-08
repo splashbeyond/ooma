@@ -72,6 +72,11 @@ class Director:
             parts.append("Live prediction loop state:\n" + open(f"{self.state_dir}/loop_state.json").read()[:2500])
         except OSError:
             parts.append("Live prediction loop state: (not available)")
+        if not self.focus and hasattr(self.hub, "universe_info"):
+            u = self.hub.universe_info()
+            parts.append("UNIVERSE (liquid Hyperliquid perps by 24h volume, USD M): " + ", ".join(f"{m} {v / 1e6:.0f}" for m, v in u.items())
+                         + ". A script runs on EVERY coin here (or the subset in MARKETS) and is judged on all of them together; "
+                           "round-trip cost is 13 bps for the biggest coins and 20-30 bps for the thinner ones.")
         ns = self.notes.context_for(None, None, k=12)
         parts.append("Notebook lessons:\n" + ("\n".join(f"- [{n.status}] {n.text}" for n in ns) or "(none yet)"))
         recs = sorted(self.j.all("scripts"), key=lambda r: r.created_at, reverse=True)[:14]
@@ -84,9 +89,24 @@ class Director:
         return "\n\n".join(parts)
 
     # ---------- evaluation (code only) ----------
+    def _markets(self, meta) -> list:
+        """Which markets a script is tested on: the focus list if set, else the whole liquid universe (or the subset it names)."""
+        if self.focus:
+            return list(self.focus)
+        uni = self.hub.history_markets(meta.timeframe) if hasattr(self.hub, "history_markets") else None
+        if meta.markets == ["ALL"]:
+            return uni or ["BTC", "ETH", "SOL", "HYPE"]
+        return [m for m in meta.markets if uni is None or m in uni]
+
+    def _cost(self, market) -> float:
+        info = self.hub.universe_info() if hasattr(self.hub, "universe_info") else {}
+        from ..scripts.binary import COST
+        from .data import day_cost
+        return day_cost(info[market]) if market in info else COST
+
     def _decisions(self, source, meta):
         out = {}
-        for m in (self.focus or meta.markets):
+        for m in self._markets(meta):
             df = self.hub.history(m, meta.timeframe)
             arrays = to_arrays(df)
             r = self.sb.run(source, arrays)
@@ -104,7 +124,7 @@ class Director:
             n = len(arrays["close"])
             s = LOOKBACK + int((n - LOOKBACK) * (1 - self.hf))
             lo, hi = (LOOKBACK, s) if which == "train" else (s, n)
-            res.append(judge(d, a, arrays["open"], arrays["close"], H, lo, hi))
+            res.append(judge(d, a, arrays["open"], arrays["close"], H, lo, hi, cost=self._cost(m), t_ms=arrays["t"]))
         return pool(res)
 
     @staticmethod
@@ -162,7 +182,7 @@ class Director:
     def _record(self, sid, h, src, meta, stage, evals, reason="", parent=None, name=None):
         rec = ScriptRecord(id=script_id(src), name=name or h["name"], hypothesis=h["hypothesis"], source=src,
                            horizon_bars=meta.horizon_bars if meta else 0, timeframe=meta.timeframe if meta else str(h["timeframe"]),
-                           markets=(self.focus or meta.markets) if meta else [], stage=stage, created_at=datetime.now(timezone.utc), session=sid,
+                           markets=(self.focus or (meta.markets if meta.markets != ["ALL"] else ["ALL"])) if meta else [], stage=stage, created_at=datetime.now(timezone.utc), session=sid,
                            model=self.llm.model, parent_id=parent, evals=evals, reason=reason)
         self.j.put("scripts", rec.id, rec)
         return rec
@@ -243,7 +263,8 @@ class Director:
         stats = {"calls": 0, "resolved": 0, "promoted": [], "retired": []}
         frames = {}
         for r in live:
-            for m in r.markets:
+            ms = self._markets(type("M", (), {"markets": r.markets, "timeframe": r.timeframe})())
+            for m in ms:
                 if (m, r.timeframe) not in frames:
                     frames[(m, r.timeframe)] = to_arrays(self.hub.live(m, r.timeframe))
                 arrays = frames[(m, r.timeframe)]

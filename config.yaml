@@ -62,7 +62,8 @@ execution:                           # candle-backtest execution model (see exec
     SOL: {sz_decimals: 2, max_leverage: 20}
     HYPE: {sz_decimals: 2, max_leverage: 10}
 director:
-  focus: [HYPE]          # research only these markets (empty = all coins)
+  focus: []              # empty = the whole liquid Hyperliquid universe; or list coins to restrict
+  top_n: 17              # how many of the most liquid perps (24h volume >= $5M)
   hypotheses: 2          # ideas per research session (kept small so sessions are fast and cheap)
   rounds: 1              # refinements per idea, from TRAIN metrics only
   pause_s: 120           # rest between back-to-back sessions

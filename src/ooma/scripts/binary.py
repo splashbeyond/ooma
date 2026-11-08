@@ -29,6 +29,22 @@ def binom_sf(k: int, n: int, p: float) -> float:
     return min(1.0, math.exp(m) * sum(math.exp(x - m) for x in logs))
 
 
+def block_p(t_ms: np.ndarray, excess: np.ndarray, block_days: float = 7.0, n_boot: int = 20000, seed: int = 0) -> float:
+    """P(no skill) when trades from MANY markets are pooled. Crypto markets move together, so trades in the same week are not
+    independent. Resample whole weeks (all markets together) and ask how often the average edge over chance is <= 0.
+    Floor is 1/n_boot, so the multiple-testing correction downstream stays meaningful."""
+    blk = np.floor(t_ms / (block_days * 86_400_000)).astype(int)
+    ids, inv = np.unique(blk, return_inverse=True)
+    if len(ids) < 4:
+        return 1.0
+    S = np.bincount(inv, weights=excess)
+    N = np.bincount(inv).astype(float)
+    rng = np.random.default_rng(seed)
+    pick = rng.integers(0, len(ids), size=(n_boot, len(ids)))
+    means = S[pick].sum(axis=1) / np.maximum(N[pick].sum(axis=1), 1)
+    return float(max((means <= 0).mean(), 1.0 / n_boot))
+
+
 @dataclass
 class BinaryResult:
     n_bars: int = 0
@@ -41,13 +57,17 @@ class BinaryResult:
     net_mean: float | None = None    # mean net return per trade after costs
     net_t: float | None = None
     up_rate: float | None = None
+    p_binom: float | None = None     # naive per-trade binomial (kept for reference when pooling)
+    trades: object = None            # (t_ms, correct-minus-chance, net) arrays, not serialised
 
     def dump(self):
-        return asdict(self)
+        d = asdict(self)
+        d.pop("trades", None)
+        return d
 
 
 def judge(direction: np.ndarray, act: np.ndarray, open_: np.ndarray, close: np.ndarray, H: int,
-          lo: int, hi: int, cost: float = COST) -> BinaryResult:
+          lo: int, hi: int, cost: float = COST, t_ms: np.ndarray | None = None) -> BinaryResult:
     """Decisions at bar indices [lo, hi) (decision i uses data through bar i). `direction`/`act` are indexed by bar."""
     n = len(close)
     idx = [i for i in range(lo, min(hi, n - H - 0)) if i + H < n and i + 1 < n]
@@ -74,8 +94,10 @@ def judge(direction: np.ndarray, act: np.ndarray, open_: np.ndarray, close: np.n
     r.n, r.hits = len(c), int(correct.sum())
     r.hit_rate = r.hits / r.n
     r.chance = float(max(up.mean(), 1 - up.mean()))
-    r.p = binom_sf(r.hits, r.n, r.chance)
+    r.p = r.p_binom = binom_sf(r.hits, r.n, r.chance)
     r.net_mean = float(net.mean())
+    if t_ms is not None:
+        r.trades = (t_ms[i_arr[c]].astype(float), correct.astype(float) - r.chance, net)
     if r.n >= 3 and net.std(ddof=1) > 0:
         r.net_t = float(net.mean() / (net.std(ddof=1) / math.sqrt(r.n)))
     return r
@@ -90,7 +112,9 @@ def pool(results: list[BinaryResult]) -> BinaryResult:
     out.n, out.hits = sum(r.n for r in rs), sum(r.hits for r in rs)
     out.hit_rate = out.hits / out.n
     out.chance = sum(r.chance * r.n for r in rs) / out.n
-    out.p = binom_sf(out.hits, out.n, out.chance)
+    out.p = out.p_binom = binom_sf(out.hits, out.n, out.chance)
+    if len(rs) > 1 and all(r.trades is not None for r in rs):
+        out.p = block_p(np.concatenate([r.trades[0] for r in rs]), np.concatenate([r.trades[1] for r in rs]))
     out.net_mean = sum(r.net_mean * r.n for r in rs) / out.n
     ts = [r.net_t for r in rs if r.net_t is not None]
     out.net_t = float(sum(ts) / math.sqrt(len(ts))) if ts else None      # Stouffer-style combination

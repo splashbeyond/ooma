@@ -16,6 +16,8 @@ def enrich(candles: pl.DataFrame, tf: str, funding: pl.DataFrame | None = None,
     df = candles.sort("t").with_columns(
         pl.max_horizontal(h - l, (h - pc).abs(), (l - pc).abs()).rolling_mean(14).alias("_atr"),
         (pl.col("t") + pl.duration(milliseconds=INTERVAL_MS[tf])).alias("_ct"))
+    if "trades" in df.columns:
+        df = df.with_columns((pl.col("trades") / pl.col("trades").rolling_mean(24)).alias("tradesx_24"))
     z = zone_columns(df["high"].to_numpy(), df["low"].to_numpy(), df["close"].to_numpy(),
                      df["_atr"].to_numpy(), **zc)
     df = df.with_columns([pl.Series(k, v) for k, v in z.items()]).with_columns(
