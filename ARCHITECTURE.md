@@ -84,3 +84,22 @@ features -> predictions (frozen, stored) -> wait H hours -> outcome
   (+0.0003 nats/pred, z=2.3); trusted predictors had NEGATIVE net edge after costs. Read: no tradable edge yet.
 - Not yet: live OI/book features (OI is logged to context_log from now, no history API), turning confident
   predictions into graded paper trades, feeding trusted notes to the LLM analyst and the strategy lab.
+
+## Execution model (execution/)
+
+Realistic, conservative costs for candle backtests; reusable for live paper trading.
+- Fees: HL base tier, taker 4.5 bps / maker 1.5 bps (staking discount configurable). Verified in secondary sources.
+- Entry/horizon exits: taker, reference price + half-spread (calibrated to the live book via `ooma exec-calibrate`)
+  + square-root market impact scaled by bar volatility and bar volume.
+- Stops: taker stop-market with extra slippage; gaps fill at the open; liquidation per HL formula (isolated margin),
+  trades whose stop sits beyond liquidation are rejected.
+- Targets: resting maker limits. Fill only if the bar trades THROUGH the target by a tick; a touch fills with
+  probability 0.35 (deterministic per trade); needs the bar's volume to absorb the order (10% participation cap).
+  A target that merely touches does not fill: this is the main source of "backtest says win, real life says no".
+- Funding: hourly rate x notional, longs pay positive funding, charged every bar held.
+- Exchange rules: 5 significant figure prices, (6 - szDecimals) decimals, sizes floored to szDecimals, min order value.
+- Live paper trading: execution/book.py walks the real l2Book; execution/resting.py is a queue-position model
+  (join the back of the queue, only prints at/through our price fill us, cancels ahead not credited).
+Unverified (configurable): $10 minimum order, liquidation penalty, maker rebate tiers, large-position margin tiers.
+Not modelled yet: partial target fills (treated as not filled), adverse selection of maker ENTRY orders
+(entries are taker), latency inside a bar (entry uses the next open), spread widening in crashes beyond stop_extra_bps.

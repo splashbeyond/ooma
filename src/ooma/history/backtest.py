@@ -38,8 +38,8 @@ class BacktestResult:
 
 class Backtester:
     def __init__(self, loader: Loader, findings_fn: FindingsFn | None = None,
-                 warmup_bars: int = 250, risk_usd: float = 100.0):
-        self.loader, self.findings_fn = loader, findings_fn
+                 warmup_bars: int = 250, risk_usd: float = 100.0, model=None):
+        self.loader, self.findings_fn, self.model = loader, findings_fn, model
         self.warmup, self.risk_usd = warmup_bars, risk_usd
 
     def run(self, strategies: list[Strategy], markets: list[str], timeframe: str,
@@ -64,7 +64,7 @@ class Backtester:
                         found = strat.scan(ScanContext(market, timeframe, as_of, hist, findings,
                                                        params=(params or {}).get(strat.name, {})))
                     for setup in found:
-                        trade = simulate(setup, candles.slice(i + 1), risk_usd=self.risk_usd)
+                        trade = simulate(setup, candles.slice(i + 1), risk_usd=self.risk_usd, model=self.model)
                         if trade is None:
                             continue
                         res.setups.append(setup)

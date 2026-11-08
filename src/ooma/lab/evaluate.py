@@ -31,8 +31,8 @@ class Evaluation:
 
 
 def window_stats(spec: StrategySpec, loader: Loader, start: datetime, end: datetime,
-                 warmup: int, risk_usd: float, stage: str) -> tuple[Evaluation, list[float]]:
-    res = Backtester(loader, warmup_bars=warmup, risk_usd=risk_usd).run(
+                 warmup: int, risk_usd: float, stage: str, model=None) -> tuple[Evaluation, list[float]]:
+    res = Backtester(loader, warmup_bars=warmup, risk_usd=risk_usd, model=model).run(
         [SpecStrategy(spec)], spec.markets, spec.timeframe, start, end)
     rs = [g.r_multiple for g in res.grades]
     return Evaluation(stage, summarize(rs), p_value_positive(rs)), rs

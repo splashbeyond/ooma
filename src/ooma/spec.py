@@ -13,6 +13,10 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 PLAIN = {"open", "high", "low", "close", "volume"}
+EXTRA = {"sup_dist", "res_dist", "sup_touches", "res_touches",       # S/R zones (ATR distance, pivot count)
+         "funding", "funding_z",                                      # funding in bps/h and its 72-bar z-score
+         "btc_ret_1", "btc_ret_6", "btc_ret_24",                      # BTC return over N bars
+         "rel_btc_6", "rel_btc_24"}                                   # own return minus BTC return
 PARAM = re.compile(r"^(ema|sma|atr|rsi|ret|z|hh|ll|volx)_(\d{1,3})$")
 # ema/sma: moving averages | atr: avg true range | rsi: Wilder RSI | ret: N-bar return
 # z: z-score of close vs N-bar mean | hh/ll: highest high / lowest low of the PRIOR N bars
@@ -20,7 +24,7 @@ PARAM = re.compile(r"^(ema|sma|atr|rsi|ret|z|hh|ll|volx)_(\d{1,3})$")
 
 
 def valid_feature(name: str) -> bool:
-    if name in PLAIN:
+    if name in PLAIN or name in EXTRA:
         return True
     m = PARAM.match(name)
     return bool(m) and 2 <= int(m.group(2)) <= 400

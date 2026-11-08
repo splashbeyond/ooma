@@ -6,13 +6,13 @@ from datetime import timedelta
 import polars as pl
 
 from ..adapters.hyperliquid import INTERVAL_MS
-from ..spec import PARAM, Condition, StrategySpec
+from ..spec import EXTRA, PARAM, Condition, StrategySpec
 from ..types import Setup
 from .base import ScanContext, Strategy
 
 
 def _expr(name: str) -> pl.Expr:
-    if name in ("open", "high", "low", "close", "volume"):
+    if name in ("open", "high", "low", "close", "volume") or name in EXTRA:
         return pl.col(name)
     kind, n = PARAM.match(name).group(1), int(PARAM.match(name).group(2))
     c, h, l, v = pl.col("close"), pl.col("high"), pl.col("low"), pl.col("volume")
@@ -72,6 +72,9 @@ class SpecStrategy(Strategy):
         if market not in s.markets or timeframe != s.timeframe:
             return {}
         step = timedelta(milliseconds=INTERVAL_MS[timeframe])
+        used = {x for c in s.long_when + s.short_when for x in (c.lhs, c.rhs) if isinstance(x, str)} & EXTRA
+        if used - set(candles.columns):
+            return {}                                   # needs enriched candles (lab/enrich.py)
         d = candles.with_columns(_all(s.long_when).alias("_L"), _all(s.short_when).alias("_S"),
                                  _expr("atr_14").alias("_atr"))
         out: dict = {}

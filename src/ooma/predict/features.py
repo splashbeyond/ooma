@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import polars as pl
 
+from ..modules.zones import zone_columns
+
 BAR_MS = 3_600_000   # the loop runs on 1h bars
 FEATURES = ["ret_1", "ret_4", "ret_24", "rsi_14", "z_20", "z_50", "volx_20", "atr_pct",
             "ema_dist_20", "ema_dist_100", "hh_prox_24", "ll_prox_24", "range_pos_48", "rv_ratio",
             "body_pct", "wick_up", "wick_dn", "hour", "dow", "funding", "funding_z",
-            "btc_ret_1", "btc_ret_4"]
+            "btc_ret_1", "btc_ret_4", "sup_dist", "res_dist", "sup_touches", "res_touches"]
 
 
 def feature_frame(candles: pl.DataFrame, funding: pl.DataFrame | None = None,
@@ -51,5 +53,10 @@ def feature_frame(candles: pl.DataFrame, funding: pl.DataFrame | None = None,
         df = df.join(rf, on="t", how="left")
     else:
         df = df.with_columns(pl.lit(None, dtype=pl.Float64).alias("btc_ret_1"), pl.lit(None, dtype=pl.Float64).alias("btc_ret_4"))
+    atr = pl.max_horizontal(pl.col("high") - pl.col("low"), (pl.col("high") - pl.col("close").shift(1)).abs(),
+                            (pl.col("low") - pl.col("close").shift(1)).abs()).rolling_mean(14)
+    z = zone_columns(df["high"].to_numpy(), df["low"].to_numpy(), df["close"].to_numpy(),
+                     df.select(atr.alias("a"))["a"].to_numpy())
+    df = df.with_columns([pl.Series(k, v) for k, v in z.items()])
     clean = [pl.when(pl.col(f).is_infinite()).then(None).otherwise(pl.col(f)).fill_nan(None).alias(f) for f in FEATURES]
     return df.with_columns(clean).select("t", "ct", "close", *FEATURES)

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 Bias = Literal["bullish", "bearish", "neutral"]
 Direction = Literal["long", "short"]
 Quality = Literal["ok", "stale", "partial"]
-ExitReason = Literal["stop", "target", "horizon", "manual", "invalidated"]
+ExitReason = Literal["stop", "target", "horizon", "manual", "invalidated", "liquidated"]
 
 
 class Signal(BaseModel):

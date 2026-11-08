@@ -75,7 +75,7 @@ def learn():
 
 
 @app.command()
-def lab(days: int = 540, ideas: int = 40, timeframes: str = "1h,4h", seed: int = 0):
+def lab(days: int = 540, ideas: int = 40, timeframes: str = "1h,4h", seed: int = 0, llm: bool = False):
     """Invent strategies, test them honestly (train/holdout), and start forward paper tests on survivors."""
     import random
     from datetime import datetime, timedelta, timezone
@@ -96,12 +96,46 @@ def lab(days: int = 540, ideas: int = 40, timeframes: str = "1h,4h", seed: int =
         for tf in tfs:
             loader.prefetch(m, tf, start - timedelta(days=60), end)
     j = _journal()
-    L = Lab(j, NoteStore(j), loader, TemplateIdeator(), seed=seed or random.randint(1, 10**6))
+    notes = NoteStore(j)
+    if llm:
+        from .lab.ideation import LLMIdeator
+        from .llm import LLMClient
+        c = cfg["llm"]
+        ideator = LLMIdeator(LLMClient(c["model"], c["fallbacks"], con=j.con, daily_budget_usd=c["daily_budget_usd"]), notes, j)
+    else:
+        ideator = TemplateIdeator()
+    from .execution.model import from_config
+    L = Lab(j, notes, loader, ideator, seed=seed or random.randint(1, 10**6), model=from_config(cfg.get("execution")))
     rep = L.discover(start, end, markets, tfs, n_ideas=ideas)
     rep = L.review_live(rep)
     typer.echo(f"tried {rep.tried} (dupes {rep.duplicates}) | rejected in train {rep.rejected_train} | "
                f"holdout-tested {rep.holdout_tested} | rejected in holdout {rep.rejected_holdout}")
     typer.echo(f"incubating: {rep.incubating or 'none'} | promoted: {rep.promoted or 'none'} | retired: {rep.retired or 'none'}")
+
+
+@app.command("exec-calibrate")
+def exec_calibrate():
+    """Compare the execution model with the live order book: real round-trip cost to trade $1k/$10k/$100k."""
+    import yaml
+
+    from .adapters.hyperliquid import HyperliquidAdapter
+    from .execution.book import walk_book
+    from .execution.model import from_config
+    cfg = yaml.safe_load(open("config.yaml"))
+    m, a = from_config(cfg.get("execution")), HyperliquidAdapter()
+    typer.echo("market  mid        spread_bps | taker round-trip bps (book walk, excl. fees) at $1k / $10k / $100k | model half-spread")
+    for mk in cfg["coins"]:
+        b = a.book(mk)
+        mid = b.mid
+        row = []
+        for notional in (1_000, 10_000, 100_000):
+            q = notional / mid
+            buy, _, ex1 = walk_book(b.asks, q, side=1)
+            sell, _, ex2 = walk_book(b.bids, q, side=-1)
+            row.append(f"{(buy - sell) / mid * 1e4:6.2f}{'*' if ex1 or ex2 else ' '}")
+        spread = (b.asks[0][0] - b.bids[0][0]) / mid * 1e4
+        typer.echo(f"{mk:6} {mid:10.2f} {spread:8.2f}   | {'  '.join(row)} | {m.half_spread_bps.get(mk, m.default_half_spread_bps):.2f} (x2 = {2 * m.half_spread_bps.get(mk, m.default_half_spread_bps):.2f} round trip)")
+    typer.echo("* = exceeded the 20 visible levels. Fees on top: taker %.1f bps/side, maker %.1f bps/side." % (m.fees.bps("taker"), m.fees.bps("maker")))
 
 
 @app.command("lab-status")

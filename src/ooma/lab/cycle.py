@@ -35,7 +35,8 @@ class LabReport:
 
 class Lab:
     def __init__(self, journal: Journal, notes: NoteStore, loader, ideator: Ideator, *,
-                 gates: Gates | None = None, holdout_frac=0.25, warmup=250, risk_usd=100.0, seed=0):
+                 gates: Gates | None = None, holdout_frac=0.25, warmup=250, risk_usd=100.0, seed=0, model=None):
+        self.model = model
         self.j, self.notes, self.loader, self.ideator = journal, notes, loader, ideator
         self.g, self.holdout_frac, self.warmup, self.risk = gates or Gates(), holdout_frac, warmup, risk_usd
         self.rng = random.Random(seed)
@@ -62,7 +63,7 @@ class Lab:
                 continue
             known.add(spec.digest())
             rep.tried += 1
-            ev, _ = window_stats(spec, self.loader, start, train_end, self.warmup, self.risk, "train")
+            ev, _ = window_stats(spec, self.loader, start, train_end, self.warmup, self.risk, "train", self.model)
             if train_ok(ev, self.g):
                 survivors.append((spec, origin, ev))
             else:
@@ -74,7 +75,7 @@ class Lab:
         for spec, origin, ev in rest:                       # passed train but not looked at: holdout stays clean
             self._save(spec, "rejected_train", origin, [ev], "passed train, outranked; not holdout-tested")
         for spec, origin, tev in top:
-            hev, _ = window_stats(spec, self.loader, train_end, end, self.warmup, self.risk, "holdout")
+            hev, _ = window_stats(spec, self.loader, train_end, end, self.warmup, self.risk, "holdout", self.model)
             rep.holdout_tested += 1
             if holdout_ok(hev, self.g, len(top)):
                 rep.incubating.append(spec.name)

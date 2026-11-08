@@ -62,7 +62,43 @@ def _momentum(rng, tf, mk):
         stop_atr=rng.choice([1.5, 2, 3]), target_r=rng.choice([1.5, 2, 3]), horizon_bars=rng.choice([12, 24, 48]))
 
 
-FAMILIES = [_breakout, _mean_rev, _trend, _momentum]
+def _zone_bounce(rng, tf, mk):
+    d = rng.choice([0.3, 0.5, 0.8]); t = rng.choice([2, 3, 4]); r = rng.choice([40, 45, 50])
+    return StrategySpec(family="zone_bounce", timeframe=tf, markets=mk,
+        hypothesis=f"Price within {d} ATR of a {t}+ touch support zone, not yet overbought, bounces (resting bids defend it).",
+        long_when=[C("sup_dist", "<", d), C("sup_touches", ">", t - 1), C("rsi_14", "<", r)],
+        short_when=[C("res_dist", "<", d), C("res_touches", ">", t - 1), C("rsi_14", ">", 100 - r)],
+        stop_atr=rng.choice([1.0, 1.5, 2]), target_r=rng.choice([1.5, 2, 3]), horizon_bars=rng.choice([12, 24, 48]))
+
+
+def _zone_room(rng, tf, mk):
+    n = rng.choice([20, 40]); room = rng.choice([2, 3, 4])
+    return StrategySpec(family="zone_room_breakout", timeframe=tf, markets=mk,
+        hypothesis=f"A {n}-bar breakout with {room}+ ATR of clear space to the next zone has room to run.",
+        long_when=[C("close", "cross_above", f"hh_{n}"), C("res_dist", ">", room)],
+        short_when=[C("close", "cross_below", f"ll_{n}"), C("sup_dist", ">", room)],
+        stop_atr=rng.choice([1.5, 2, 3]), target_r=rng.choice([2, 3]), horizon_bars=rng.choice([24, 48]))
+
+
+def _funding_fade(rng, tf, mk):
+    z = rng.choice([1.5, 2.0, 2.5])
+    return StrategySpec(family="funding_fade", timeframe=tf, markets=mk,
+        hypothesis=f"Funding {z} sigma extreme means one side is crowded and paying; fade it once price stalls.",
+        long_when=[C("funding_z", "<", -z), C("ret_6", "<", 0)],
+        short_when=[C("funding_z", ">", z), C("ret_6", ">", 0)],
+        stop_atr=rng.choice([1.5, 2, 3]), target_r=rng.choice([1.5, 2]), horizon_bars=rng.choice([12, 24, 48]))
+
+
+def _rel_strength(rng, tf, mk):
+    x = rng.choice([0.02, 0.04, 0.06])
+    return StrategySpec(family="relative_strength", timeframe=tf, markets=mk,
+        hypothesis=f"A coin outrunning BTC by {x:.0%} over 24 bars while above its EMA keeps leading.",
+        long_when=[C("rel_btc_24", ">", x), C("close", ">", "ema_50"), C("ret_2", ">", 0)],
+        short_when=[C("rel_btc_24", "<", -x), C("close", "<", "ema_50"), C("ret_2", "<", 0)],
+        stop_atr=rng.choice([1.5, 2, 3]), target_r=rng.choice([2, 3]), horizon_bars=rng.choice([24, 48]))
+
+
+FAMILIES = [_breakout, _mean_rev, _trend, _momentum, _zone_bounce, _zone_room, _funding_fade, _rel_strength]
 
 
 def mutate(spec: StrategySpec, rng: random.Random) -> StrategySpec:
@@ -117,6 +153,11 @@ F (feature) is one of: open high low close volume, or NAME_N with N in 2..400 wh
 ema sma atr rsi ret z hh ll volx   (ret_N = N-bar return; z_N = z-score of close vs N-bar mean;
 hh_N/ll_N = highest high/lowest low of the PRIOR N bars; volx_N = volume / N-bar avg volume).
 Example F: ema_20, rsi_14, ret_6, z_50, hh_20, volx_20. Numbers on the right are plain numbers.
+Also available as F (ready-made columns):
+  sup_dist / res_dist = ATR-distance from close to the nearest support / resistance ZONE (clustered swing
+    pivots); sup_touches / res_touches = how many pivots make up that zone (more = stronger). May be missing.
+  funding (bps per hour), funding_z (72-bar z-score of funding; high = longs crowded and paying).
+  btc_ret_1/6/24 = BTC return over N bars; rel_btc_6/24 = this coin's N-bar return minus BTC's.
 
 Rules: costs are ~13 bps round trip, so strategies need real edge after fees. Prefer regime filters
 (trend/volatility conditions), asymmetric setups, and ideas unlike the ones already tried.

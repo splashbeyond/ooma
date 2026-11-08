@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import time
+
 import httpx
 import polars as pl
 
@@ -29,10 +31,22 @@ class HyperliquidAdapter:
     def __init__(self, client: httpx.Client | None = None):
         self._c = client or httpx.Client(timeout=15)
 
+    MIN_GAP = 0.25          # seconds between requests: stay well under Hyperliquid's weight limits
+    _last = 0.0
+
     def _post(self, body: dict):
-        r = self._c.post(URL, json=body)
+        for attempt in range(6):
+            wait = self.MIN_GAP - (time.monotonic() - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            HyperliquidAdapter._last = time.monotonic()
+            r = self._c.post(URL, json=body)
+            if r.status_code == 429 or r.status_code >= 500:
+                time.sleep(min(30, 2 ** attempt))               # back off, then retry
+                continue
+            r.raise_for_status()
+            return r.json()
         r.raise_for_status()
-        return r.json()
 
     def markets(self) -> list[str]:
         return [u["name"] for u in self._post({"type": "meta"})["universe"]]

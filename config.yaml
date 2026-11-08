@@ -48,3 +48,16 @@ llm:
   model: z-ai/glm-5.3-flash          # OpenRouter; ~$0.03/M in, $0.08/M out
   fallbacks: [z-ai/glm-5.3]
   daily_budget_usd: 1.0              # hard stop for unattended runs
+execution:                           # candle-backtest execution model (see execution/model.py)
+  fees: {taker_bps: 4.5, maker_bps: 1.5, staking_discount: 0.0}   # HL base tier
+  half_spread_bps: {BTC: 0.15, ETH: 0.25, SOL: 0.6, HYPE: 1.0}    # recalibrate with `ooma exec-calibrate`
+  impact_coeff: 0.5
+  stop_extra_bps: 3.0
+  touch_fill_prob: 0.35
+  participation_cap: 0.10
+  leverage: 3.0
+  rules:                             # from `meta`: szDecimals, maxLeverage. min_notional unverified
+    BTC: {sz_decimals: 5, max_leverage: 40}
+    ETH: {sz_decimals: 4, max_leverage: 25}
+    SOL: {sz_decimals: 2, max_leverage: 20}
+    HYPE: {sz_decimals: 2, max_leverage: 10}
