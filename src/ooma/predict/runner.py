@@ -10,7 +10,7 @@ from pathlib import Path
 from ..wallets.tracker import cohort_frame
 from .features import feature_frame
 from .loop import RecursiveLoop
-from .report import digest
+from .report import digest, state_summary
 
 log = logging.getLogger("ooma")
 REF = "BTC"
@@ -53,6 +53,8 @@ def tick(loop: RecursiveLoop, adapter, markets, lookback_h: int = 900, tracker=N
         except Exception as e:                               # noqa: BLE001
             log.warning("context log failed for %s: %s", m, e)
     loop.save()
+    Path("data").mkdir(exist_ok=True)
+    Path("data/loop_state.json").write_text(json.dumps(state_summary(loop)))
     return n
 
 

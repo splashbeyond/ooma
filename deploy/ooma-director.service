@@ -1,0 +1,16 @@
+[Unit]
+Description=ooma director: LLM-driven strategy research and forward testing (paper only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ooma
+EnvironmentFile=%h/.ooma.env
+ExecStart=%h/ooma/.venv/bin/ooma director-run
+Restart=always
+RestartSec=60
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

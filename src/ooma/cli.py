@@ -192,6 +192,83 @@ def exec_calibrate():
     typer.echo("* = exceeded the 20 visible levels. Fees on top: taker %.1f bps/side, maker %.1f bps/side." % (m.fees.bps("taker"), m.fees.bps("maker")))
 
 
+def _director():
+    import os
+
+    import yaml
+
+    from .adapters.hyperliquid import HyperliquidAdapter
+    from .director.data import DataHub
+    from .director.session import Director
+    from .llm import LLMClient
+    from .scripts.binary import Gates
+    from .scripts.sandbox import SandboxRunner
+    cfg = yaml.safe_load(open("config.yaml"))
+    os.makedirs("data", exist_ok=True)
+    j = Journal("data/director.duckdb")
+    notes = NoteStore(j)
+    c, d = cfg["llm"], cfg.get("director", {})
+    llm = LLMClient(c["model"], c["fallbacks"], con=j.con, daily_budget_usd=c["daily_budget_usd"])
+    sb = SandboxRunner(isolated_user=os.environ.get("OOMA_SANDBOX_USER") or None)
+    hub = DataHub(HyperliquidAdapter(), markets=cfg["coins"])
+    return Director(j, notes, llm, hub, sb, gates=Gates(), hypotheses=d.get("hypotheses", 4), rounds=d.get("rounds", 2)), j, d
+
+
+@app.command()
+def direct():
+    """Run ONE research session now: the LLM proposes, writes and tests strategy scripts (sandboxed, judged by code)."""
+    d, j, _ = _director()
+    rep = d.run_session()
+    typer.echo(str(rep))
+
+
+@app.command("director-run")
+def director_run():
+    """Run the director forever: hourly forward-testing of live scripts, a research session every few hours."""
+    import json
+    import logging
+    import time
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    log = logging.getLogger("ooma.director")
+    d, j, cfg = _director()
+    every = timedelta(hours=cfg.get("session_every_h", 6))
+    last_session = None
+    Path("data/reports").mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            stats = d.tick()
+            log.info("forward tick: %s", stats)
+            if last_session is None or now - last_session >= every:
+                rep = d.run_session()
+                last_session = datetime.now(timezone.utc)
+                log.info("session: %s", rep)
+                with open(f"data/reports/director-{now.date()}.md", "a") as f:
+                    f.write(f"\n## session {rep.session}\n{rep}\n")
+            Path("data/director_heartbeat.json").write_text(json.dumps({"ok": True, "at": datetime.now(timezone.utc).isoformat()}))
+        except Exception:                                    # noqa: BLE001  never die
+            log.exception("director cycle failed")
+        nxt = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(minute=5, second=0, microsecond=0)
+        time.sleep(max(60, (nxt - datetime.now(timezone.utc)).total_seconds()))
+
+
+@app.command("scripts")
+def scripts_list(stage: str = typer.Option(None)):
+    """Every script the director has written and where it stands."""
+    j = Journal("data/director.duckdb")
+    recs = sorted(j.all("scripts"), key=lambda r: r.created_at)
+    for r in recs:
+        if stage and r.stage != stage:
+            continue
+        e = {x["stage"]: x for x in r.evals}
+        t, f = e.get("train", {}), e.get("forward", {})
+        typer.echo(f"{r.stage:17} {r.name:32} {r.timeframe}/H{r.horizon_bars:<3} train n={t.get('n')} hit={t.get('hit_rate') and round(t['hit_rate'], 3)} "
+                   f"vs {t.get('chance') and round(t['chance'], 3)} | fwd n={f.get('n')}  {r.reason[:60]}")
+
+
 @app.command("lab-status")
 def lab_status():
     """Every invented strategy and where it stands."""

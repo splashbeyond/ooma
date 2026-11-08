@@ -37,3 +37,19 @@ def digest(loop: RecursiveLoop) -> str:
         out.append(f"Last maintenance: trusted {len(h.trusted)}, demoted {len(h.demoted)}, "
                    f"retired {h.retired}, spawned {h.spawned}.")
     return "\n".join(out)
+
+
+def state_summary(loop: RecursiveLoop) -> dict:
+    """Compact machine-readable state for the director (a separate process, so it cannot open the loop's database)."""
+    out = {"at": datetime.now(timezone.utc).isoformat(), "bars": loop.bars, "horizons": {}}
+    for H in loop.H:
+        P = loop.preds[H]
+        e = P[f"ensemble@{H}"].stats
+        alive = [p for p in P.values() if p.kind in ("stump", "logit") and p.status != "retired"]
+        top = sorted((p for p in alive if p.stats.n_eff(H) >= 10), key=lambda p: p.stats.z(H), reverse=True)[:5]
+        out["horizons"][str(H)] = {
+            "ensemble": {"n_eff": round(e.n_eff(H)), "skill_nats": round(e.mean_d(), 5), "z": round(e.z(H), 2),
+                         "hit": round(e.hit_rate() or 0, 4), "net_edge_per_confident_call": e.edge()},
+            "trusted": [p.id for p in alive if p.status == "trusted"][:10],
+            "top_by_z": [{"id": p.id, "z": round(p.stats.z(H), 2), "n_eff": round(p.stats.n_eff(H))} for p in top]}
+    return out

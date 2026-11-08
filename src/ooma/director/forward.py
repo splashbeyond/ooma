@@ -1,0 +1,76 @@
+"""Forward (live paper) testing of scripts. Each closed bar the script is asked its two binary questions per market; the
+answers are frozen in a table, then resolved when the horizon passes. Only these forward calls can promote a script."""
+from __future__ import annotations
+
+import numpy as np
+
+from ..adapters.hyperliquid import INTERVAL_MS
+from ..scripts.binary import COST, BinaryResult, binom_sf, pool
+from ..scripts.sandbox import SandboxRunner
+
+
+class ForwardBook:
+    def __init__(self, con):
+        self.con = con
+        con.execute("CREATE TABLE IF NOT EXISTS script_calls (sid VARCHAR, market VARCHAR, tf VARCHAR, t_ms BIGINT, "
+                    "horizon INT, direction BOOLEAN, act BOOLEAN, resolved BOOLEAN, ret DOUBLE, PRIMARY KEY (sid, market, t_ms))")
+
+    def record(self, sid, market, tf, t_ms, horizon, direction, act):
+        self.con.execute("INSERT OR IGNORE INTO script_calls VALUES (?,?,?,?,?,?,?,FALSE,NULL)",
+                         [sid, market, tf, int(t_ms), horizon, bool(direction), bool(act)])
+
+    def last_t(self, sid, market):
+        r = self.con.execute("SELECT MAX(t_ms) FROM script_calls WHERE sid=? AND market=?", [sid, market]).fetchall()[0][0]
+        return r or 0
+
+    def resolve(self, sid, market, arrays: dict, tf: str) -> int:
+        """Fill in realised returns for calls whose horizon has fully elapsed in `arrays` (live bars)."""
+        t = arrays["t"].astype("int64")
+        pos = {int(v): i for i, v in enumerate(t)}
+        rows = self.con.execute("SELECT t_ms, horizon FROM script_calls WHERE sid=? AND market=? AND NOT resolved",
+                                [sid, market]).fetchall()
+        n = 0
+        for t_ms, H in rows:
+            i = pos.get(int(t_ms))
+            if i is None or i + H >= len(t):
+                continue
+            ret = float(arrays["close"][i + H] / arrays["open"][i + 1] - 1.0)
+            self.con.execute("UPDATE script_calls SET resolved=TRUE, ret=? WHERE sid=? AND market=? AND t_ms=?", [ret, sid, market, int(t_ms)])
+            n += 1
+        return n
+
+    def result(self, sid, tf, H, cost=COST) -> BinaryResult:
+        step = INTERVAL_MS[tf]
+        per = []
+        for (market,) in self.con.execute("SELECT DISTINCT market FROM script_calls WHERE sid=?", [sid]).fetchall():
+            rows = self.con.execute("SELECT t_ms, direction, act, ret FROM script_calls WHERE sid=? AND market=? AND resolved ORDER BY t_ms",
+                                    [sid, market]).fetchall()
+            if not rows:
+                continue
+            ret = np.array([r[3] for r in rows]); d = np.array([r[1] for r in rows]); a = np.array([r[2] for r in rows])
+            up = ret > 0
+            res = BinaryResult(n_bars=len(rows), n_acts=int(a.sum()), up_rate=float(up.mean()))
+            chosen, last = [], -1
+            for j, r in enumerate(rows):
+                if a[j] and r[0] >= last + H * step:
+                    chosen.append(j); last = r[0]
+            if chosen:
+                c = np.array(chosen)
+                correct = d[c] == up[c]
+                net = np.where(d[c], ret[c], -ret[c]) - cost
+                res.n, res.hits = len(c), int(correct.sum())
+                res.hit_rate, res.chance = res.hits / res.n, float(max(up.mean(), 1 - up.mean()))
+                res.p = binom_sf(res.hits, res.n, res.chance)
+                res.net_mean = float(net.mean())
+                if res.n >= 3 and net.std(ddof=1) > 0:
+                    res.net_t = float(net.mean() / (net.std(ddof=1) / np.sqrt(res.n)))
+            per.append(res)
+        return pool(per)
+
+
+def ask_live(sandbox: SandboxRunner, source: str, arrays: dict):
+    """The script's two answers for the latest closed bar."""
+    r = sandbox.run(source, arrays, start=0, mode="last")
+    if not r.ok:
+        return None, None, r.error
+    return bool(r.direction[0]), bool(r.act[0]), None

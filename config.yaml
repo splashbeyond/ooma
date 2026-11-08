@@ -61,3 +61,7 @@ execution:                           # candle-backtest execution model (see exec
     ETH: {sz_decimals: 4, max_leverage: 25}
     SOL: {sz_decimals: 2, max_leverage: 20}
     HYPE: {sz_decimals: 2, max_leverage: 10}
+director:
+  hypotheses: 4          # ideas per research session
+  rounds: 2              # refinements per idea, from TRAIN metrics only
+  session_every_h: 6
