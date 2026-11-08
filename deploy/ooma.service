@@ -1,0 +1,15 @@
+[Unit]
+Description=ooma recursive learning loop (paper only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ooma
+ExecStart=%h/.local/bin/uv run ooma run
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

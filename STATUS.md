@@ -3,6 +3,8 @@
 Market-agnostic AI analyst, v0 on Hyperliquid perps, paper only. Spec: PRD.md (OOMA_PRD).
 
 ## Now
+- Recursive prediction loop built (2026-11-08), 27 tests pass, replayed on live HL data, live tick + restart verified. Not deployed to any server yet (waiting on Davis). Deploy: deploy/setup.sh.
+- Local data/ooma.duckdb holds a replay state (gitignored); a server should build its own.
 - Strategy lab built (2026-11-08): ooma invents/tests/incubates strategies. `ooma lab`, `ooma lab-status`. First real run: 0 survivors (honest). 21 tests.
 - Next: milestone 2 price action is still optional; higher value now is richer features (funding/OI, cross-market, wallets) + LLMIdeator, + paper loop to run incubating strategies forward.
 - Outline in code done (2026-11-08): see ARCHITECTURE.md. 15 tests pass. All strategies are stubs; replay, grading, notes, learning cycle are real.

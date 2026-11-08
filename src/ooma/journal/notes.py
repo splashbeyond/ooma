@@ -32,6 +32,13 @@ class NoteStore:
         self.j.put("notes", n.id, n)
         return n
 
+    def add_counts(self, note_id: str, n_support: int, n_against: int) -> None:
+        """Bulk evidence from the prediction loop (one write per note per flush)."""
+        n: Note = self.j.get("notes", note_id)
+        n.n_support += n_support
+        n.n_against += n_against
+        self.j.put("notes", n.id, n)
+
     def set_status(self, note_id: str, status: str) -> Note:
         n: Note = self.j.get("notes", note_id)
         n.status = status

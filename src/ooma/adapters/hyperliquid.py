@@ -75,8 +75,18 @@ class HyperliquidAdapter:
         raise KeyError(f"unknown market {market}")
 
     def funding_history(self, market: str, start: datetime, end: datetime) -> pl.DataFrame:
-        rows = self._post({"type": "fundingHistory", "coin": market,
-                           "startTime": _ms(start), "endTime": _ms(end)})
+        rows, cur = [], _ms(start)
+        while cur < _ms(end):
+            chunk = self._post({"type": "fundingHistory", "coin": market,
+                                "startTime": cur, "endTime": _ms(end)})
+            if not chunk:
+                break
+            rows += chunk
+            if chunk[-1]["time"] + 1 <= cur or len(chunk) < 400:
+                break
+            cur = chunk[-1]["time"] + 1
+        rows = list({r["time"]: r for r in rows}.values())
+        rows.sort(key=lambda r: r["time"])
         return pl.DataFrame({
             "t": [_dt(r["time"]) for r in rows],
             "funding_rate": [float(r["fundingRate"]) for r in rows],

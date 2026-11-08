@@ -36,3 +36,11 @@ wallets:
   min_trades_to_score: 30
   cohort_top_decile: 10
   cohort_bottom_decile: 1
+predict:
+  horizons: [1, 4, 24]      # hours ahead for the binary question
+  cost: 0.0013              # round-trip fees + slippage, as a fraction
+  margin: 0.03              # |p - 0.5| needed to count as a confident call
+  min_eff: 30               # effective samples (n / horizon) before a predictor can be trusted
+  alpha: 0.05               # Bonferroni-adjusted significance for trust
+  cap: 500                  # max live predictors per horizon
+  spawn_per_day: 25

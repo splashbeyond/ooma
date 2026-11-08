@@ -60,3 +60,27 @@ Gaps before the lab can use "any strategy":
 - True arbitrage: Hyperliquid alone has little risk-free arb. Funding carry needs spot + perp (HL spot adapter);
   cross-venue arb needs another exchange adapter. Both are adapters, then new feature families.
 - LLMIdeator is a stub (open-ended invention). Sandboxed code strategies are deliberately not built.
+
+## Recursive prediction loop (predict/)
+
+Binary framing: every closed 1h bar, for each market and horizon H in {1,4,24}h, the question is
+"will the close H hours from now be above the close now?". Measurables (23 causal features: returns, RSI,
+z-scores, volume, ATR, MA distance, range position, candle shape, hour/day, funding, funding z, BTC lead) feed
+a population of predictors (rule stumps, conjunctions, an online logistic model, a base-rate baseline).
+
+```
+features -> predictions (frozen, stored) -> wait H hours -> outcome
+   -> score vs baseline (log loss, hit rate, net edge after costs; n_eff = n/H)
+   -> every predictor learns online; ensemble weights shift (Hedge)
+   -> trusted if Bonferroni-adjusted p <= 0.05 and n_eff >= 30  -> notebook (supported lesson)
+   -> retired if clearly worse than baseline
+   -> new hypotheses spawned from what works (jitter / conjunction / fresh), judged only on outcomes after birth
+```
+- Out-of-sample by construction: a prediction exists before its outcome. Tests prove features are causal,
+  that restart == one straight run, that noise earns no trust, and that a planted edge does.
+- Run: `ooma predict-replay` (warm start from history), `ooma run` (hourly forever), `ooma predict-status`.
+- Server: deploy/setup.sh + deploy/ooma.service (systemd user service). State is in data/ooma.duckdb.
+- First real-data replay (120d, 4 markets): statistically detectable but economically tiny skill at 1h
+  (+0.0003 nats/pred, z=2.3); trusted predictors had NEGATIVE net edge after costs. Read: no tradable edge yet.
+- Not yet: live OI/book features (OI is logged to context_log from now, no history API), turning confident
+  predictions into graded paper trades, feeding trusted notes to the LLM analyst and the strategy lab.

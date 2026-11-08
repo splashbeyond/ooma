@@ -4,7 +4,7 @@ version = "0.0.1"
 requires-python = ">=3.11"
 dependencies = [
   "polars", "pandas", "numpy", "duckdb", "pydantic>=2", "httpx",
-  "websockets", "pyyaml", "typer",
+  "websockets", "pyyaml", "typer", "pyarrow",
 ]
 
 [project.optional-dependencies]

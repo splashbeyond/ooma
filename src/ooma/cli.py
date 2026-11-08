@@ -112,6 +112,46 @@ def lab_status():
         typer.echo(f"{r.stage:17} {r.spec.name:24} {r.spec.timeframe} n={ev.get('n')} avgR={ev.get('avg_r')} {r.reason}")
 
 
+def _loop(seed: int = 0):
+    import yaml
+
+    from .predict.loop import RecursiveLoop
+    from .predict.store import PredictStore
+    cfg = yaml.safe_load(open("config.yaml"))
+    j = _journal()
+    return RecursiveLoop(PredictStore(j.con), NoteStore(j), cfg.get("predict"), seed=seed), cfg["coins"]
+
+
+@app.command("predict-replay")
+def predict_replay(days: int = 120):
+    """Warm start: walk-forward over recent history so the loop begins with learned state."""
+    from .adapters.hyperliquid import HyperliquidAdapter
+    from .predict.report import digest
+    from .predict.runner import replay
+    loop, markets = _loop()
+    typer.echo(f"replayed bars: {replay(loop, HyperliquidAdapter(), markets, days)}")
+    typer.echo(digest(loop))
+
+
+@app.command()
+def run():
+    """Run the loop forever: tick every hour, learn, write daily digests. Safe to restart."""
+    import logging
+
+    from .adapters.hyperliquid import HyperliquidAdapter
+    from .predict.runner import run_forever
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    loop, markets = _loop()
+    run_forever(loop, HyperliquidAdapter(), markets)
+
+
+@app.command("predict-status")
+def predict_status():
+    """Current digest: ensemble vs baseline, trusted predictors, population."""
+    from .predict.report import digest
+    typer.echo(digest(_loop()[0]))
+
+
 @app.command()
 def scorecard():
     """Per-strategy stats with n and CI, vs baselines. (milestone 7)"""
