@@ -24,3 +24,15 @@ price_action:
   breakout_atr: 0.5
   breakout_vol_mult: 1.5
   retest_bars: 10
+history:
+  warmup_bars: 250
+  holdout_frac: 0.25
+  backtest_risk_usd: 100
+learning:
+  min_n: 30
+  min_evidence_per_hypothesis: 10
+  require_human_approval: true
+wallets:
+  min_trades_to_score: 30
+  cohort_top_decile: 10
+  cohort_bottom_decile: 1
