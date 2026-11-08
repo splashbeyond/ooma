@@ -42,10 +42,57 @@ def backtest(strategy: str, market: str = "ETH", timeframe: str = "4h", days: in
     typer.echo("backtest: no active strategies yet")
 
 
-@app.command()
-def wallets():
-    """Tracked wallet leaderboard and cohort positioning. (milestone 4)"""
-    typer.echo("wallets: not implemented yet")
+wallets_app = typer.Typer(help="Find and track profitable directional wallets (not market makers or hedgers)")
+app.add_typer(wallets_app, name="wallets")
+
+
+def _tracker():
+    from .adapters.hyperliquid import HyperliquidAdapter
+    from .wallets.api import WalletAPI
+    from .wallets.tracker import WalletTracker
+    return WalletTracker(_journal().con, WalletAPI(HyperliquidAdapter()))
+
+
+@wallets_app.command("discover")
+def wallets_discover(n: int = 300, min_account: float = 50_000, max_turnover: float = 100.0):
+    """Pick candidates from the leaderboard (profitable, not high-turnover), then fetch + classify their fills."""
+    t = _tracker()
+    addrs = t.discover(n, min_account, max_turnover)
+    typer.echo(f"{len(addrs)} candidates after leaderboard pre-filter; profiling (~4 API calls each)...")
+    profs = t.profile_all(addrs, log=typer.echo)
+    from collections import Counter
+    typer.echo("kinds: " + str(dict(Counter(p.kind for p in profs.values()))))
+    typer.echo("status: " + str(dict(Counter(r[0] for r in t.con.execute("SELECT status FROM wallets").fetchall()))))
+
+
+@wallets_app.command("top")
+def wallets_top(status: str = "skilled", limit: int = 20):
+    """Show wallets by status: skilled | weak | neutral | excluded:market_maker | excluded:hedger ..."""
+    t = _tracker()
+    rows = sorted(t.by_status(status), key=lambda p: -p["daily_t"])[:limit]
+    typer.echo(f"{'address':14} {'kind':12} {'closes':>6} {'days':>5} {'netPnL':>12} {'bps/$':>7} {'win%':>5} {'t':>5} {'top5%':>5} {'maker%':>6} {'hold(min)':>9}")
+    for p in rows:
+        hold = (p["median_hold_s"] or 0) / 60
+        typer.echo(f"{p['address'][:12]}.. {p['kind']:12} {p['n_closes']:6d} {p['active_days']:5d} {p['net_pnl']:12,.0f} "
+                   f"{p['pnl_bps']:7.2f} {100 * (p['win_rate'] or 0):5.1f} {p['daily_t']:5.2f} {100 * p['top5_share']:5.0f} "
+                   f"{100 * p['maker_share']:6.0f} {hold:9.1f}")
+
+
+@wallets_app.command("snapshot")
+def wallets_snapshot():
+    """Record where skilled and weak wallets are positioned right now."""
+    n = _tracker().snapshot()
+    typer.echo(f"snapshot of {n} wallets saved")
+
+
+@wallets_app.command("persistence")
+def wallets_persistence():
+    """Does a wallet's first-half skill predict its second-half profit? (the luck check)"""
+    from .wallets.profile import prepare
+    t = _tracker()
+    sets = {a: t._fills_df(a) for (a,) in t.con.execute("SELECT address FROM wallets WHERE kind='directional'").fetchall()}
+    from .wallets.scoring import persistence_report
+    typer.echo(str(persistence_report({a: d for a, d in sets.items() if d.height})))
 
 
 @app.command()
@@ -175,8 +222,11 @@ def run():
     from .adapters.hyperliquid import HyperliquidAdapter
     from .predict.runner import run_forever
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from .wallets.api import WalletAPI
+    from .wallets.tracker import WalletTracker
     loop, markets = _loop()
-    run_forever(loop, HyperliquidAdapter(), markets)
+    a = HyperliquidAdapter()
+    run_forever(loop, a, markets, tracker=WalletTracker(loop.s.con, WalletAPI(a)))
 
 
 @app.command("predict-status")

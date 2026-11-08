@@ -1,6 +1,8 @@
 """Measurables. Every feature is causal: row i uses only bars <= i, so replay == live."""
 from __future__ import annotations
 
+from datetime import timedelta
+
 import polars as pl
 
 from ..modules.zones import zone_columns
@@ -9,11 +11,12 @@ BAR_MS = 3_600_000   # the loop runs on 1h bars
 FEATURES = ["ret_1", "ret_4", "ret_24", "rsi_14", "z_20", "z_50", "volx_20", "atr_pct",
             "ema_dist_20", "ema_dist_100", "hh_prox_24", "ll_prox_24", "range_pos_48", "rv_ratio",
             "body_pct", "wick_up", "wick_dn", "hour", "dow", "funding", "funding_z",
-            "btc_ret_1", "btc_ret_4", "sup_dist", "res_dist", "sup_touches", "res_touches"]
+            "btc_ret_1", "btc_ret_4", "sup_dist", "res_dist", "sup_touches", "res_touches",
+            "skill_net", "weak_net", "skill_chg_4h"]
 
 
 def feature_frame(candles: pl.DataFrame, funding: pl.DataFrame | None = None,
-                  ref: pl.DataFrame | None = None) -> pl.DataFrame:
+                  ref: pl.DataFrame | None = None, cohort: pl.DataFrame | None = None) -> pl.DataFrame:
     """Columns: t (bar open), ct (bar close = when the info is known), close, FEATURES.
     funding: t, funding_rate (hourly). ref: reference-market candles (BTC) for cross-market features."""
     c, h, l, o, v = (pl.col(x) for x in ("close", "high", "low", "open", "volume"))
@@ -53,6 +56,12 @@ def feature_frame(candles: pl.DataFrame, funding: pl.DataFrame | None = None,
         df = df.join(rf, on="t", how="left")
     else:
         df = df.with_columns(pl.lit(None, dtype=pl.Float64).alias("btc_ret_1"), pl.lit(None, dtype=pl.Float64).alias("btc_ret_4"))
+    if cohort is not None and cohort.height:        # wallet snapshots exist only from the first live snapshot on
+        co = cohort.select("t", "skill_net", "weak_net", "skill_chg_4h").rename({"t": "_ts"}).sort("_ts")
+        df = df.join_asof(co, left_on="ct", right_on="_ts", strategy="backward",
+                          tolerance=timedelta(hours=3)).drop("_ts")
+    else:
+        df = df.with_columns([pl.lit(None, dtype=pl.Float64).alias(c) for c in ("skill_net", "weak_net", "skill_chg_4h")])
     atr = pl.max_horizontal(pl.col("high") - pl.col("low"), (pl.col("high") - pl.col("close").shift(1)).abs(),
                             (pl.col("low") - pl.col("close").shift(1)).abs()).rolling_mean(14)
     z = zone_columns(df["high"].to_numpy(), df["low"].to_numpy(), df["close"].to_numpy(),

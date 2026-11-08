@@ -8,6 +8,10 @@ from dataclasses import asdict, dataclass
 from .features import FEATURES
 
 
+EW = 0.998          # decay for recency-weighted statistics
+FORGET = 0.998      # decay for what rule stumps remember
+
+
 def clip_p(p: float) -> float:
     return min(0.99, max(0.01, p))
 
@@ -27,10 +31,14 @@ class PredStats:
     sum_ll: float = 0.0
     n_edge: int = 0          # predictions confident enough to trade
     sum_edge: float = 0.0    # sum of signed return minus costs for those
+    ew_n: float = 0.0        # recency-weighted twins of n / sum_d / sum_d2 (half-life ~350 predictions)
+    ew_d: float = 0.0
+    ew_d2: float = 0.0
 
     def update(self, p, y, ll, ll_base, ret, cost, margin):
         d = ll_base - ll
         self.n += 1; self.sum_d += d; self.sum_d2 += d * d; self.sum_ll += ll
+        self.ew_n = self.ew_n * EW + 1; self.ew_d = self.ew_d * EW + d; self.ew_d2 = self.ew_d2 * EW + d * d
         self.hits += int((p > 0.5) == y)
         if p > 0.5 + margin:
             self.n_edge += 1; self.sum_edge += ret - cost
@@ -49,6 +57,17 @@ class PredStats:
         m = self.mean_d()
         var = max(self.sum_d2 / self.n - m * m, 1e-12)
         return m / math.sqrt(var / max(self.n_eff(H), 1e-9))
+
+    def ew_mean(self) -> float:
+        return self.ew_d / self.ew_n if self.ew_n else 0.0
+
+    def ew_z(self, H: int) -> float:
+        """Skill over the RECENT past only: what decides demotion and ensemble membership."""
+        if self.ew_n < 20:
+            return 0.0
+        m = self.ew_mean()
+        var = max(self.ew_d2 / self.ew_n - m * m, 1e-12)
+        return m / math.sqrt(var / max(self.ew_n / max(1, H), 1e-9))
 
     def pval(self, H: int) -> float:             # one-sided: better than baseline?
         return 0.5 * math.erfc(self.z(H) / math.sqrt(2))
@@ -158,7 +177,8 @@ class RuleStump(Predictor):
     def update(self, f, y):
         h = self.holds(f)
         if h is not None:
-            c = self.cells[int(h)]; c[0] += int(y); c[1] += 1
+            c = self.cells[int(h)]
+            c[0] = c[0] * FORGET + int(y); c[1] = c[1] * FORGET + 1     # old evidence fades: the rule can re-learn
 
 
 class OnlineLogit(Predictor):

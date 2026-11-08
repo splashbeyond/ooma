@@ -24,8 +24,8 @@ class Journal:
         self.con.execute(f"INSERT OR REPLACE INTO {table} VALUES (?, ?)", [id, obj.model_dump_json()])
 
     def get(self, table: str, id: str) -> BaseModel | None:
-        r = self.con.execute(f"SELECT payload FROM {table} WHERE id=?", [id]).fetchone()
-        return TABLES[table].model_validate_json(r[0]) if r else None
+        r = self.con.execute(f"SELECT payload FROM {table} WHERE id=?", [id]).fetchall()
+        return TABLES[table].model_validate_json(r[0][0]) if r else None
 
     def all(self, table: str) -> list:
         rows = self.con.execute(f"SELECT payload FROM {table}").fetchall()

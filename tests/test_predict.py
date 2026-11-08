@@ -110,3 +110,57 @@ def test_restart_resumes_exactly(tmp_path):
     c.warm_start({"ETH": df}, "x"); c.process_market("ETH", df, persist=False)
     sb, sc = b.preds[1]["ensemble@1"].stats, c.preds[1]["ensemble@1"].stats
     assert sb.n == sc.n and abs(sb.sum_d - sc.sum_d) < 1e-6          # stop/start == one straight run
+
+
+# ---------- does it actually LEARN over time? ----------
+import copy
+
+
+def _seg(loop, prev):
+    s = loop.preds[1]["ensemble@1"].stats
+    return (s.sum_d - prev.sum_d) / max(1, s.n - prev.n)
+
+
+def _splice(n1, n2, phi1, phi2, seed):
+    a, b = synth(n1, seed, phi=phi1), synth(n2, seed + 1, phi=phi2)
+    k = a["close"][-1] / b["close"][0]
+    b = b.with_columns((pl.col(c) * k for c in ("open", "high", "low", "close"))).with_columns(
+        (pl.col("t") + (a["t"][-1] - b["t"][0] + H1)).alias("t"))
+    return pl.concat([a, b])
+
+
+def test_learning_curve_holds_and_beats_best_single_predictor_share():
+    """Stable edge: late-period skill must stay near the best single rule's skill, not fade as the population grows."""
+    loop, _ = mk_loop(dict(horizons=[1], cap=300, calib=300))
+    df = feature_frame(synth(3600, 5, phi=0.3))
+    loop.warm_start({"ETH": df}, "x")
+    loop.process_market("ETH", df.head(1800), persist=False)
+    mid = copy.deepcopy(loop.preds[1]["ensemble@1"].stats)
+    loop.process_market("ETH", df, persist=False)
+    late = _seg(loop, mid)
+    best = max(p.stats.mean_d() for p in loop.preds[1].values() if p.kind == "stump")
+    assert late > 0.01 and late > 0.5 * best          # the ensemble keeps most of the edge it found
+
+
+def test_adapts_after_the_regime_flips():
+    """Edge reverses mid-run: skill dips, then recovers and turns positive again in the new regime."""
+    loop, _ = mk_loop(dict(horizons=[1], cap=300, calib=300))
+    df = feature_frame(_splice(2400, 3000, 0.3, -0.3, 5))
+    loop.warm_start({"ETH": df}, "x")
+    loop.process_market("ETH", df.head(2400), persist=False)
+    a = copy.deepcopy(loop.preds[1]["ensemble@1"].stats)
+    loop.process_market("ETH", df.head(3300), persist=False)
+    trough = _seg(loop, a)
+    b = copy.deepcopy(loop.preds[1]["ensemble@1"].stats)
+    loop.process_market("ETH", df, persist=False)
+    recovered = _seg(loop, b)
+    assert recovered > 0.005 and recovered > trough   # it re-learned the reversed pattern
+
+
+def test_noise_does_not_fake_a_learning_curve():
+    """No edge: the ensemble must stay at baseline skill (about 0), never drift to confident-and-wrong."""
+    loop, _ = mk_loop(dict(horizons=[1], cap=300, calib=300))
+    df = feature_frame(synth(3600, 21, phi=0.0))
+    loop.warm_start({"ETH": df}, "x"); loop.process_market("ETH", df, persist=False)
+    s = loop.preds[1]["ensemble@1"].stats
+    assert abs(s.mean_d()) < 0.004 and s.z(1) < 3

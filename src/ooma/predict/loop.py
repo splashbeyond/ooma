@@ -29,7 +29,7 @@ from .store import PredictStore
 
 DEFAULTS = dict(horizons=[1, 4, 24], cost=0.0013, margin=0.03, eta=0.05, w_floor=0.02,
                 min_eff=30, alpha=0.05, cap=500, spawn_per_day=25, retire_z=-1.64, retire_eff=60,
-                maint_every=24, buffer=4000, calib=500)
+                maint_every=24, buffer=4000, calib=500, ens_k=10)
 
 
 @dataclass
@@ -162,13 +162,32 @@ class RecursiveLoop:
                     if x is not None:
                         preds[pid] = x
             base_p = preds[f"baseline@{H}"]
-            tw = sum(P[k].w for k in preds)
-            ens_p = sum(P[k].w * v for k, v in preds.items()) / tw
+            ens_p = self._blend(H, preds, base_p)
             it = Item(f"{market}|{ct.isoformat()}|{H}", market, ct, H, price, f, preds, base_p, ens_p)
             if persist:
                 self.s.add_snapshot(it.sid, market, ct, H, price, f, preds, base_p, ens_p)
                 it.in_db = True
             self.pending.setdefault((market, H), deque()).append(it)
+
+    def _blend(self, H, preds: dict, base_p: float) -> float:
+        """Ensemble = baseline nudged by the few predictors with positive RECENT skill, combined in logit space
+        with weights proportional to that skill. Nothing recently useful -> the baseline. Averaging hundreds of
+        near-useless rules drowns a real signal; this does not."""
+        P, K = self.preds[H], self.cfg["ens_k"]
+        cands = []
+        for pid, p in preds.items():
+            if pid.startswith("baseline"):
+                continue
+            st = P[pid].stats
+            if st.ew_n >= 50 and st.ew_mean() > 0 and st.ew_z(H) > 0.5:
+                cands.append((st.ew_mean(), p))
+        if not cands:
+            return base_p
+        cands = sorted(cands, key=lambda x: -x[0])[:K]
+        tot = sum(s for s, _ in cands)
+        lb = math.log(clip_p(base_p) / (1 - clip_p(base_p)))
+        z = lb + sum(s / tot * (math.log(clip_p(p) / (1 - clip_p(p))) - lb) for s, p in cands)
+        return 1 / (1 + math.exp(-z))
 
     def _resolve(self, market, ct, price, persist):
         for H in self.H:
@@ -186,17 +205,12 @@ class RecursiveLoop:
                 continue
             ll = logloss(p, y)
             pr.stats.update(p, y, ll, ll_base, ret, c["cost"], c["margin"])
-            pr.w *= math.exp(-c["eta"] * ll)
             if pr.note_id:
                 self._ev.setdefault(pr.note_id, [0, 0])[0 if (p > 0.5) == y else 1] += 1
         P[f"ensemble@{H}"].stats.update(it.ens_p, y, logloss(it.ens_p, y), ll_base, ret, c["cost"], c["margin"])
         for pr in P.values():
             if pr.status != "retired" and pr.kind in ("stump", "logit", "baseline"):
                 pr.update(it.f, y)
-        ws = [p for p in P.values() if p.kind in ("stump", "logit", "baseline") and p.status != "retired"]
-        mean_w = sum(p.w for p in ws) / len(ws)
-        for p in ws:
-            p.w = max(c["w_floor"], p.w / mean_w)
         self.buffer[H].append((it.f, y))
         if it.in_db:
             self.s.resolve_snapshot(it.sid, y, ret, at)
@@ -215,7 +229,7 @@ class RecursiveLoop:
                     p.status = "trusted"
                     self._note(p, H, z, ne, padj, promoted=True)
                     rep.trusted.append(p.id)
-                elif p.status == "trusted" and z < 0.5:
+                elif p.status == "trusted" and p.stats.ew_z(H) < 0.0:      # recent evidence turned: demote
                     p.status = "live"
                     self._note(p, H, z, ne, padj, promoted=False)
                     rep.demoted.append(p.id)
@@ -232,7 +246,6 @@ class RecursiveLoop:
             room = max(0, c["cap"] - len([p for p in alive if p.status != "retired"]))
             for child in offspring(promising, self.buffer[H], H, self.rng, min(c["spawn_per_day"], room), born):
                 rep.spawned += self._add(child)
-        self._flush_evidence()
         if self._persist:
             self.save_predictors()
         return rep

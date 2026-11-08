@@ -54,8 +54,8 @@ class PredictStore:
         self.con.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", [k, json.dumps(v)])
 
     def get_meta(self, k, default=None):
-        r = self.con.execute("SELECT v FROM meta WHERE k=?", [k]).fetchone()
-        return json.loads(r[0]) if r else default
+        r = self.con.execute("SELECT v FROM meta WHERE k=?", [k]).fetchall()
+        return json.loads(r[0][0]) if r else default
 
     def log_context(self, ctx):
         self.con.execute("INSERT INTO context_log VALUES (?,?,?,?,?,?,?)",
