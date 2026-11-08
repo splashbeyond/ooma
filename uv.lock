@@ -14,49 +14,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "analyst"
-version = "0.0.1"
-source = { editable = "." }
-dependencies = [
-    { name = "duckdb" },
-    { name = "httpx" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "pandas" },
-    { name = "polars" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "typer" },
-    { name = "websockets" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-kronos = [
-    { name = "huggingface-hub" },
-    { name = "torch" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "duckdb" },
-    { name = "httpx" },
-    { name = "huggingface-hub", marker = "extra == 'kronos'" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "polars" },
-    { name = "pydantic", specifier = ">=2" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pyyaml" },
-    { name = "torch", marker = "extra == 'kronos'" },
-    { name = "typer" },
-    { name = "websockets" },
-]
-provides-extras = ["dev", "kronos"]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -890,6 +847,49 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/49/ee/16bde09927e7ffacd50b117cd7d1dc764d145f03249fc41fdf6dfba3301f/nvidia_nvtx-13.2.86-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:968ce72baee2a01791c7d3254000eac81f24677b0b91c62d21b449a1f309c245", size = 153463, upload-time = "2026-07-16T09:41:23.242Z" },
     { url = "https://files.pythonhosted.org/packages/52/5f/74e2d29240de30a971d59ca20f4a3c4f2720cd49752809eeb4177d385c2c/nvidia_nvtx-13.2.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1c6ae1be92fba569dd271f7b9b3056f99f5642726dc6c53d1b93ae4110c398fb", size = 154292, upload-time = "2026-07-16T09:40:53.791Z" },
 ]
+
+[[package]]
+name = "ooma"
+version = "0.0.1"
+source = { editable = "." }
+dependencies = [
+    { name = "duckdb" },
+    { name = "httpx" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "typer" },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+kronos = [
+    { name = "huggingface-hub" },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "duckdb" },
+    { name = "httpx" },
+    { name = "huggingface-hub", marker = "extra == 'kronos'" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pyyaml" },
+    { name = "torch", marker = "extra == 'kronos'" },
+    { name = "typer" },
+    { name = "websockets" },
+]
+provides-extras = ["dev", "kronos"]
 
 [[package]]
 name = "packaging"

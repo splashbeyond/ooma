@@ -1,11 +1,11 @@
 import typer
 
-app = typer.Typer(help="ooma personal trading analyst (paper only)")
+app = typer.Typer(help="ooma personal trading ooma (paper only)")
 
 
 @app.callback()
 def main():
-    """ooma analyst."""
+    """ooma ooma."""
 
 
 @app.command()
