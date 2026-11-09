@@ -1,0 +1,13 @@
+[Unit]
+Description=ooma read-only dashboard (localhost only)
+After=network.target
+
+[Service]
+WorkingDirectory=%h/ooma
+ExecStart=%h/ooma/.venv/bin/ooma dashboard --host 127.0.0.1 --port 8765
+Restart=always
+RestartSec=5
+MemoryMax=150M
+
+[Install]
+WantedBy=default.target

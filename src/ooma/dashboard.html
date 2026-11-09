@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ooma</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--ink:#181818;--mut:#6b6b66;--line:#e4e4df;--ok:#1a7f4b;--bad:#c0392b;--warn:#b7791f;--acc:#2f5bd8}
+@media (prefers-color-scheme:dark){:root{--bg:#121214;--card:#1b1b1f;--ink:#ececec;--mut:#9a9aa0;--line:#2c2c32;--ok:#4cc38a;--bad:#ef6b5b;--warn:#e0a84a;--acc:#7a9bff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:20px;margin:0}h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:26px 0 8px}
+header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px}
+.mut{color:var(--mut)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.big{font-size:24px;font-weight:600}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--mut)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap}th{color:var(--mut);font-weight:500}
+tr:last-child td{border-bottom:0}.wrap{overflow-x:auto}td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+.pill{padding:1px 8px;border-radius:99px;border:1px solid var(--line);font-size:12px}
+.bars{display:flex;gap:2px;align-items:flex-end;height:46px}.bars i{flex:1;background:var(--acc);opacity:.75;min-width:3px;border-radius:2px 2px 0 0}
+.note{font-size:12px;color:var(--mut);margin-top:6px}
+</style></head><body><main>
+<header><h1>ooma <span class="mut" style="font-weight:400">paper trading only</span></h1><span class="mut" id="upd">loading…</span></header>
+<h2>Services</h2><div class="grid" id="svc"></div>
+<h2>Paper trading</h2><div id="paper"></div>
+<h2>Research funnel</h2><div class="grid" id="funnel"></div>
+<h2>Research sessions (latest 60)</h2><div class="card"><div class="bars" id="sess"></div><div class="note">bar height = scripts proposed per session</div></div>
+<h2>Recent scripts</h2><div class="wrap" id="scripts"></div>
+<h2>Prediction loop: ensemble skill by horizon</h2><div class="wrap" id="loopt"></div>
+<p class="note">Hit rates are shown against the chance level for the same trades. A strategy only earns "active" from 30+ independent live trades with a significant edge.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id), pct=(x,d=1)=>x==null?'–':(x*100).toFixed(d)+'%';
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function dur(s){s=Math.round(s||0);return s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':s>=60?Math.floor(s/60)+'m':s+'s'}
+function svc(name,d){if(!d)return `<div class="card"><span class="dot bad"></span><b>${name}</b><div class="mut">no heartbeat</div></div>`;
+ const ok=d.ok&&d.age_s<180;return `<div class="card"><span class="dot ${ok?'ok':'bad'}"></span><b>${name}</b> <span class="${ok?'ok':'bad'}">${ok?'alive':'STALE'}</span>
+ <div class="mut">${esc(d.activity)} for ${dur(d.activity_for_s)}</div><div class="mut">up ${dur(d.uptime_s)} · beat ${d.age_s}s ago · ${d.rss_mb} MB</div></div>`}
+function table(h,rows){return `<table><thead><tr>${h.map(x=>`<th class="${x[1]||''}">${x[0]}</th>`).join('')}</tr></thead><tbody>${rows.join('')||`<tr><td colspan="${h.length}" class="mut">none yet</td></tr>`}</tbody></table>`}
+async function tick(){
+ let s;try{s=await (await fetch('/api/state')).json()}catch(e){$('upd').textContent='cannot reach server';return}
+ $('upd').textContent='updated '+new Date().toLocaleTimeString()+' · refreshes every 15s';
+ const d=s.director||{};
+ $('svc').innerHTML=svc('Loop (hourly predictions)',s.loop)+svc('Director (LLM research)',s.director)+
+  `<div class="card"><b>LLM spend today</b><div class="big">$${(d.llm_usd_today??0).toFixed(2)}</div><div class="mut">of $${d.llm_budget_usd??'–'} budget</div></div>`+
+  `<div class="card"><b>Counts</b><div class="mut">${d.sessions??0} sessions since restart · ${s.loop?.bars??0} bars · holdout looks (7d) ${d.looks_7d??0}</div></div>`;
+ const p=d.paper||[];
+ $('paper').className='wrap';
+ $('paper').innerHTML=table([['Strategy'],['Stage'],['Bars'],['Hold','r'],['Age','r'],['Trades','r'],['Hit','r'],['Chance','r'],['Net/trade','r'],['Paper PnL','r'],['p','r']],
+  p.map(x=>`<tr><td>${esc(x.name)}</td><td><span class="pill">${x.stage}</span></td><td>${x.timeframe}</td><td class="r">${x.horizon} bars</td><td class="r">${x.age_h}h</td>
+  <td class="r">${x.paper_trades}</td><td class="r">${pct(x.hit)}</td><td class="r">${pct(x.chance)}</td>
+  <td class="r ${x.net_per_trade_pct>0?'ok':x.net_per_trade_pct<0?'bad':''}">${x.net_per_trade_pct==null?'–':x.net_per_trade_pct+'%'}</td>
+  <td class="r ${x.paper_pnl_pct>0?'ok':x.paper_pnl_pct<0?'bad':''}">${x.paper_pnl_pct==null?'–':x.paper_pnl_pct+'%'}</td><td class="r">${x.p}</td></tr>`));
+ const sc=d.scripts||{},tot=Object.values(sc).reduce((a,b)=>a+b,0);
+ $('funnel').innerHTML=Object.entries(sc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="card"><div class="mut">${k.replace(/_/g,' ')}</div><div class="big">${v}</div><div class="mut">${tot?(v/tot*100).toFixed(0):0}% of ${tot} scripts</div></div>`).join('');
+ const ss=s.sessions||[],mx=Math.max(1,...ss.map(x=>x.proposed||0));
+ $('sess').innerHTML=ss.map(x=>`<i title="session ${x.n}: proposed ${x.proposed}, rejected ${x.rejected_train}${x.stopped?', stopped: '+esc(x.stopped):''}" style="height:${Math.max(4,(x.proposed||0)/mx*100)}%"></i>`).join('');
+ $('scripts').innerHTML=table([['Created'],['Script'],['Stage'],['Bars'],['Train n','r'],['Train hit','r'],['Chance','r'],['Fwd n','r'],['Why']],
+  (s.scripts||[]).slice(0,40).map(x=>`<tr><td class="mut">${esc((x.created||'').slice(5,16))}</td><td>${esc(x.name)}</td><td><span class="pill">${esc(x.stage)}</span></td><td>${x.tf}/H${x.h}</td>
+  <td class="r">${x.train_n??'–'}</td><td class="r">${pct(x.train_hit)}</td><td class="r">${pct(x.train_chance)}</td><td class="r">${x.fwd_n??'–'}</td><td class="mut">${esc(x.reason)}</td></tr>`));
+ const L=(s.loop_state||{}).horizons||{};
+ $('loopt').innerHTML=table([['Horizon'],['Hit','r'],['z-score','r'],['Skill (nats)','r'],['Net edge/call','r'],['Effective n','r'],['Best single rule']],
+  Object.entries(L).map(([h,v])=>{const e=v.ensemble||{},t=(v.top_by_z||[])[0]||{};return `<tr><td>${h}h</td><td class="r">${pct(e.hit)}</td><td class="r">${e.z}</td><td class="r">${e.skill_nats}</td>
+  <td class="r ${e.net_edge_per_confident_call>0?'ok':'bad'}">${pct(e.net_edge_per_confident_call,2)}</td><td class="r">${e.n_eff}</td><td class="mut">${esc(t.id)} (z ${t.z})</td></tr>`}));
+}
+tick();setInterval(tick,15000);
+</script></body></html>

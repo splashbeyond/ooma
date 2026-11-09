@@ -227,6 +227,7 @@ def direct():
 @app.command("director-run")
 def director_run():
     """Run the director forever with a heartbeat: research sessions back to back, plus hourly paper-trading of live scripts."""
+    import json
     import logging
     import time
     from collections import Counter
@@ -255,6 +256,16 @@ def director_run():
         hb.update(activity, sessions=totals["sessions"], last_session=totals["last_session"], last_result=totals["last_result"],
                   scripts=dict(Counter(r.stage for r in recs)), looks_7d=d.recent_looks(),
                   llm_usd_today=round(d.llm.spent_today(), 3), llm_budget_usd=d.llm.budget, paper=d.live_summary())
+        rows = []
+        for r in sorted(recs, key=lambda r: r.created_at, reverse=True)[:150]:
+            e = {x["stage"]: x for x in r.evals}
+            t, f = e.get("train", {}), e.get("forward", {})
+            rows.append({"name": r.name, "stage": r.stage, "tf": r.timeframe, "h": r.horizon_bars, "created": str(r.created_at),
+                         "train_n": t.get("n"), "train_hit": t.get("hit_rate"), "train_chance": t.get("chance"),
+                         "fwd_n": f.get("n"), "reason": (r.reason or "")[:140]})
+        tmp = Path("data/director_scripts.json.tmp")
+        tmp.write_text(json.dumps(rows))
+        tmp.replace("data/director_scripts.json")
 
     next_tick = datetime.now(timezone.utc)
     publish("starting")
@@ -274,6 +285,8 @@ def director_run():
             totals["last_session"] = datetime.now(timezone.utc).isoformat()
             totals["last_result"] = {k: getattr(rep, k) for k in ("proposed", "rejected_train", "holdout_tested", "incubating", "stopped")}
             log.info("session: %s", rep)
+            with open("data/sessions.jsonl", "a") as f:
+                f.write(json.dumps({"at": totals["last_session"], "n": totals["sessions"], **totals["last_result"]}) + "\n")
             with open(f"data/reports/director-{now.date()}.md", "a") as f:
                 f.write(f"\n## session {rep.session}\n{rep}\n")
             if "budget" in rep.stopped.lower():
@@ -320,6 +333,13 @@ def status():
                 typer.echo(f"    {x['stage']:10} {x['name'][:34]:34} {x['timeframe']}/H{x['horizon']:<3} trades={x['paper_trades']:<4} hit={x['hit']} vs {x['chance']}  net/trade={x['net_per_trade_pct']}%  paper PnL={x['paper_pnl_pct']}%  p={x['p']}")
         else:
             typer.echo(f"  bars processed {d.get('bars')}, last tick {d.get('last_tick')}")
+
+
+@app.command()
+def dashboard(port: int = 8765, host: str = "127.0.0.1"):
+    """Read-only web dashboard. Bound to localhost; view it through an SSH tunnel (deploy/dashboard.sh)."""
+    from .dashboard import serve
+    serve(host, port)
 
 
 @app.command("scripts")
