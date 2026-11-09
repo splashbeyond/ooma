@@ -34,6 +34,9 @@ DESCRIPTION = """Columns in `bars` (numpy float arrays, last element = latest CL
 Helper functions: from ooma_lib import sma, ema, rsi, atr, rolling_max, rolling_min, zscore, pct_change (all causal, NaN-padded)."""
 
 
+MIN_BARS = {"1h": 1000, "4h": 1000, "1d": 400}      # 540 days of daily candles is only ~540 bars
+
+
 def day_cost(day_volume_usd: float) -> float:
     """Round-trip cost fraction by liquidity tier. Thin coins cost more than the flat 13 bps; do not flatter them."""
     return 0.0013 if day_volume_usd >= 50e6 else 0.0020 if day_volume_usd >= 10e6 else 0.0030
@@ -114,15 +117,18 @@ class DataHub:
 
     def history(self, market: str, tf: str) -> pl.DataFrame:
         if tf not in self._hist:
-            frames = {}
+            frames, errors = {}, []
             for m in self.universe():
                 self.on_progress and self.on_progress()
                 try:
                     df = self._market_frame(m, tf)
-                    if df.height >= 1000:                      # newly listed coins lack history for a fair test
+                    if df.height >= MIN_BARS.get(tf, 1000):    # newly listed coins lack history for a fair test
                         frames[m] = df
-                except Exception:                              # noqa: BLE001  one bad coin must not break the universe
+                except Exception as e:                         # noqa: BLE001  one bad coin must not break the universe
+                    errors.append(f"{m}: {e!r}"[:120])
                     continue
+            if not frames:
+                raise RuntimeError(f"no usable history for {tf} (min {MIN_BARS.get(tf, 1000)} bars); errors: {errors[:3]}")
             self._hist[tf] = add_cross_section(frames)
         return self._hist[tf][market]
 

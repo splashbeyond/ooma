@@ -95,3 +95,9 @@ def test_universe_ranks_by_volume_and_filters_thin_coins(tmp_path):
     a = FakeAdapter([mk("AAA", 9e6), mk("BTC", 5e8), mk("TINY", 1e5), mk("ETH", 2e8), mk("MID", 6e6)])
     hub = DataHub(a, root=str(tmp_path), top_n=3, min_day_volume=5e6)
     assert hub.universe() == ["BTC", "ETH", "AAA"]                  # TINY filtered, MID cut by top_n, ranked by volume
+
+
+def test_daily_history_not_filtered_out():
+    """Regression: a 1000-bar minimum silently dropped every coin on 1d (540 days = 540 bars), failing each daily script."""
+    from ooma.director.data import MIN_BARS
+    assert MIN_BARS["1d"] <= 540 < MIN_BARS["1h"]
