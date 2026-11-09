@@ -216,3 +216,24 @@ def test_live_summary_reports_paper_pnl():
         d.tick()
     s = d.live_summary()
     assert s and s[0]["paper_trades"] > 0 and s[0]["paper_pnl_pct"] is not None and s[0]["name"].startswith("momo")
+
+
+def test_open_positions_mark_to_market_and_skip_overlaps():
+    import duckdb
+    import polars as pl
+    from datetime import datetime, timezone
+    from ooma.director.forward import ForwardBook
+
+    class A:
+        def candles(self, m, tf, s, e):
+            return pl.DataFrame({"open": [100.0]})
+    b = ForwardBook(duckdb.connect(":memory:"))
+    H, step = 4, 3_600_000
+    b.record("s", "ETH", "1h", 0, H, True, True)              # long, counted
+    b.record("s", "ETH", "1h", step, H, True, True)           # overlaps the first: not a trade
+    b.record("s", "BTC", "1h", 0, H, False, True)             # short
+    b.record("s", "SOL", "1h", 0, H, True, False)             # skipped: act=False
+    pos = {p["market"]: p for p in b.open_positions("s", "1h", H, A(), {"ETH": 110.0, "BTC": 110.0, "SOL": 1.0})}
+    assert set(pos) == {"ETH", "BTC"}
+    assert pos["ETH"]["gross_pct"] == 10.0 and pos["BTC"]["gross_pct"] == -10.0
+    assert pos["ETH"]["net_pct"] == 10.0 - 0.13

@@ -22,6 +22,7 @@ tr:last-child td{border-bottom:0}.wrap{overflow-x:auto}td.r,th.r{text-align:righ
 <header><h1>ooma <span class="mut" style="font-weight:400">paper trading only</span></h1><span class="mut" id="upd">loading…</span></header>
 <h2>Services</h2><div class="grid" id="svc"></div>
 <h2>Paper trading</h2><div id="paper"></div>
+<h2>Open paper trades (marked to market)</h2><div class="wrap" id="pos"></div>
 <h2>Research funnel</h2><div class="grid" id="funnel"></div>
 <h2>Research sessions (latest 60)</h2><div class="card"><div class="bars" id="sess"></div><div class="note">bar height = scripts proposed per session</div></div>
 <h2>Recent scripts</h2><div class="wrap" id="scripts"></div>
@@ -50,6 +51,12 @@ async function tick(){
   <td class="r">${x.open_trades??0}</td><td class="r">${x.paper_trades}</td><td class="r">${pct(x.hit)}</td><td class="r">${pct(x.chance)}</td>
   <td class="r ${x.net_per_trade_pct>0?'ok':x.net_per_trade_pct<0?'bad':''}">${x.net_per_trade_pct==null?'–':x.net_per_trade_pct+'%'}</td>
   <td class="r ${x.paper_pnl_pct>0?'ok':x.paper_pnl_pct<0?'bad':''}">${x.paper_pnl_pct==null?'–':x.paper_pnl_pct+'%'}</td><td class="r">${x.p}</td></tr>`));
+ const P=(s.positions||{}).positions||[],tn=P.reduce((a,x)=>a+x.net_pct,0);
+ const ago=ms=>{const h=(Date.now()-ms)/36e5;return h<1?Math.round(h*60)+'m':h.toFixed(1)+'h'};
+ $('pos').innerHTML=table([['Strategy'],['Market'],['Side'],['Entry','r'],['Now','r'],['Gross','r'],['Net of costs','r'],['Open for','r'],['Closes in','r']],
+  P.map(x=>`<tr><td>${esc(x.strategy)}</td><td>${esc(x.market)}</td><td>${x.side}</td><td class="r">${x.entry}</td><td class="r">${x.mark}</td>
+  <td class="r ${x.gross_pct>0?'ok':'bad'}">${x.gross_pct}%</td><td class="r ${x.net_pct>0?'ok':'bad'}">${x.net_pct}%</td><td class="r">${ago(x.opened)}</td><td class="r">${Math.max(0,(x.closes-Date.now())/36e5).toFixed(1)}h</td></tr>`))
+  +(P.length?`<div class="note">${P.length} open · average net ${(tn/P.length).toFixed(3)}% per trade (costs 0.13% round trip already deducted). Unrealised: it can change before each trade closes.</div>`:'');
  const sc=d.scripts||{},tot=Object.values(sc).reduce((a,b)=>a+b,0);
  $('funnel').innerHTML=Object.entries(sc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="card"><div class="mut">${k.replace(/_/g,' ')}</div><div class="big">${v}</div><div class="mut">${tot?(v/tot*100).toFixed(0):0}% of ${tot} scripts</div></div>`).join('');
  const ss=s.sessions||[],mx=Math.max(1,...ss.map(x=>x.proposed||0));

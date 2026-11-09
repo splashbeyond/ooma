@@ -251,11 +251,23 @@ def director_run():
             hb.progress()
             time.sleep(min(10, max(0, end - time.time())))
 
+    pos_at = [0.0]
+
     def publish(activity):
         recs = j.all("scripts")
         hb.update(activity, sessions=totals["sessions"], last_session=totals["last_session"], last_result=totals["last_result"],
                   scripts=dict(Counter(r.stage for r in recs)), looks_7d=d.recent_looks(),
                   llm_usd_today=round(d.llm.spent_today(), 3), llm_budget_usd=d.llm.budget, paper=d.live_summary())
+        if time.time() - pos_at[0] > 60:                     # mark open paper trades to market (cheap: one price call)
+            try:
+                pos = d.positions()
+                tmp = Path("data/positions.json.tmp")
+                tmp.write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "positions": pos}))
+                tmp.replace("data/positions.json")
+                pos_at[0] = time.time()
+            except Exception:                              # noqa: BLE001
+                log.exception("position marking failed")
+                pos_at[0] = time.time()
         rows = []
         for r in sorted(recs, key=lambda r: r.created_at, reverse=True)[:150]:
             e = {x["stage"]: x for x in r.evals}

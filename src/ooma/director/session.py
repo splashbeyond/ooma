@@ -287,6 +287,16 @@ class Director:
                         "paper_pnl_pct": None if res.net_mean is None else round(res.net_mean * res.n * 100, 2), "p": round(res.p, 4)})
         return sorted(out, key=lambda x: -(x["paper_pnl_pct"] or -99))
 
+    def positions(self) -> list:
+        """Every open paper trade marked to the current mark price (one API call for all prices)."""
+        marks = {c.market: c.mark_price for c in self.hub.a.all_contexts()}
+        out = []
+        for r in self.j.all("scripts"):
+            if r.stage in ("incubating", "active"):
+                for p in self.book.open_positions(r.id, r.timeframe, r.horizon_bars, self.hub.a, marks):
+                    out.append({"strategy": r.name, "tf": r.timeframe, "horizon": r.horizon_bars, **p})
+        return sorted(out, key=lambda x: -x["net_pct"])
+
     # ---------- forward testing (code only) ----------
     def tick(self) -> dict:
         """Hourly: ask each live script its two questions on the newest closed bar, resolve old calls, apply forward verdicts."""

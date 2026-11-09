@@ -14,9 +14,10 @@ class ForwardBook:
         self.con = con
         con.execute("CREATE TABLE IF NOT EXISTS script_calls (sid VARCHAR, market VARCHAR, tf VARCHAR, t_ms BIGINT, "
                     "horizon INT, direction BOOLEAN, act BOOLEAN, resolved BOOLEAN, ret DOUBLE, PRIMARY KEY (sid, market, t_ms))")
+        con.execute("ALTER TABLE script_calls ADD COLUMN IF NOT EXISTS entry DOUBLE")
 
     def record(self, sid, market, tf, t_ms, horizon, direction, act):
-        self.con.execute("INSERT OR IGNORE INTO script_calls VALUES (?,?,?,?,?,?,?,FALSE,NULL)",
+        self.con.execute("INSERT OR IGNORE INTO script_calls (sid, market, tf, t_ms, horizon, direction, act, resolved, ret) VALUES (?,?,?,?,?,?,?,FALSE,NULL)",
                          [sid, market, tf, int(t_ms), horizon, bool(direction), bool(act)])
 
     def last_t(self, sid, market):
@@ -38,6 +39,38 @@ class ForwardBook:
             self.con.execute("UPDATE script_calls SET resolved=TRUE, ret=? WHERE sid=? AND market=? AND t_ms=?", [ret, sid, market, int(t_ms)])
             n += 1
         return n
+
+    def open_positions(self, sid, tf, H, adapter, marks: dict, cost=COST) -> list[dict]:
+        """Live mark-to-market of paper trades that have not reached their horizon. Mirrors result(): an 'act' call only counts as a
+        trade if it is at least H bars after the previous counted trade in that market. Entry = open of the bar after the signal."""
+        from datetime import datetime, timedelta, timezone
+        step, out = INTERVAL_MS[tf], []
+        for (market,) in self.con.execute("SELECT DISTINCT market FROM script_calls WHERE sid=? AND act", [sid]).fetchall():
+            last = None
+            for t_ms, d, resolved, entry in self.con.execute(
+                    "SELECT t_ms, direction, resolved, entry FROM script_calls WHERE sid=? AND market=? AND act ORDER BY t_ms", [sid, market]).fetchall():
+                if last is not None and t_ms < last + H * step:
+                    continue                                    # overlapping call, not a counted trade
+                last = t_ms
+                if resolved:
+                    continue
+                if entry is None:
+                    t0 = datetime.fromtimestamp((t_ms + step) / 1000, timezone.utc)
+                    try:
+                        c = adapter.candles(market, tf, t0, t0 + timedelta(milliseconds=step))
+                        if c.height:
+                            entry = float(c["open"][0])
+                            self.con.execute("UPDATE script_calls SET entry=? WHERE sid=? AND market=? AND t_ms=?", [entry, sid, market, int(t_ms)])
+                    except Exception:                           # noqa: BLE001
+                        entry = None
+                mark = marks.get(market)
+                if not entry or not mark:
+                    continue
+                gross = (mark / entry - 1.0) * (1 if d else -1)
+                out.append({"market": market, "side": "LONG" if d else "SHORT", "entry": entry, "mark": mark,
+                            "gross_pct": round(gross * 100, 3), "net_pct": round((gross - cost) * 100, 3),
+                            "opened": int(t_ms + step), "closes": int(t_ms + step * (H + 1))})
+        return out
 
     def result(self, sid, tf, H, cost=COST) -> BinaryResult:
         step = INTERVAL_MS[tf]

@@ -43,7 +43,7 @@ def state() -> dict:
         if d:
             d["age_s"] = _age(d)
     return {"now": datetime.now(timezone.utc).isoformat(), "loop": loop, "director": dire, "loop_state": _load("loop_state.json"),
-            "scripts": _load("director_scripts.json") or [], "sessions": _sessions()}
+            "scripts": _load("director_scripts.json") or [], "positions": _load("positions.json"), "sessions": _sessions()}
 
 
 class Handler(BaseHTTPRequestHandler):
