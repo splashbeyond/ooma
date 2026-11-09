@@ -330,7 +330,7 @@ def status():
             paper = d.get("paper") or []
             typer.echo(f"  PAPER TRADING: {len(paper)} live strategies")
             for x in paper[:10]:
-                typer.echo(f"    {x['stage']:10} {x['name'][:34]:34} {x['timeframe']}/H{x['horizon']:<3} trades={x['paper_trades']:<4} hit={x['hit']} vs {x['chance']}  net/trade={x['net_per_trade_pct']}%  paper PnL={x['paper_pnl_pct']}%  p={x['p']}")
+                typer.echo(f"    {x['stage']:10} {x['name'][:34]:34} {x['timeframe']}/H{x['horizon']:<3} open={x.get('open_trades', 0):<3} closed={x['paper_trades']:<4} hit={x['hit']} vs {x['chance']}  net/trade={x['net_per_trade_pct']}%  paper PnL={x['paper_pnl_pct']}%  p={x['p']}")
         else:
             typer.echo(f"  bars processed {d.get('bars')}, last tick {d.get('last_tick')}")
 

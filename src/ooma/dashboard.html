@@ -45,9 +45,9 @@ async function tick(){
   `<div class="card"><b>Counts</b><div class="mut">${d.sessions??0} sessions since restart · ${s.loop?.bars??0} bars · holdout looks (7d) ${d.looks_7d??0}</div></div>`;
  const p=d.paper||[];
  $('paper').className='wrap';
- $('paper').innerHTML=table([['Strategy'],['Stage'],['Bars'],['Hold','r'],['Age','r'],['Trades','r'],['Hit','r'],['Chance','r'],['Net/trade','r'],['Paper PnL','r'],['p','r']],
+ $('paper').innerHTML=table([['Strategy'],['Stage'],['Bars'],['Hold','r'],['Age','r'],['Open','r'],['Closed','r'],['Hit','r'],['Chance','r'],['Net/trade','r'],['Paper PnL','r'],['p','r']],
   p.map(x=>`<tr><td>${esc(x.name)}</td><td><span class="pill">${x.stage}</span></td><td>${x.timeframe}</td><td class="r">${x.horizon} bars</td><td class="r">${x.age_h}h</td>
-  <td class="r">${x.paper_trades}</td><td class="r">${pct(x.hit)}</td><td class="r">${pct(x.chance)}</td>
+  <td class="r">${x.open_trades??0}</td><td class="r">${x.paper_trades}</td><td class="r">${pct(x.hit)}</td><td class="r">${pct(x.chance)}</td>
   <td class="r ${x.net_per_trade_pct>0?'ok':x.net_per_trade_pct<0?'bad':''}">${x.net_per_trade_pct==null?'–':x.net_per_trade_pct+'%'}</td>
   <td class="r ${x.paper_pnl_pct>0?'ok':x.paper_pnl_pct<0?'bad':''}">${x.paper_pnl_pct==null?'–':x.paper_pnl_pct+'%'}</td><td class="r">${x.p}</td></tr>`));
  const sc=d.scripts||{},tot=Object.values(sc).reduce((a,b)=>a+b,0);

@@ -279,7 +279,8 @@ class Director:
             if r.stage not in ("incubating", "active"):
                 continue
             res = self.book.result(r.id, r.timeframe, r.horizon_bars)
-            out.append({"name": r.name, "stage": r.stage, "age_h": round((datetime.now(timezone.utc) - r.created_at).total_seconds() / 3600, 1),
+            open_n = self.book.con.execute("SELECT COUNT(*) FROM script_calls WHERE sid=? AND act AND NOT resolved", [r.id]).fetchall()[0][0]
+            out.append({"name": r.name, "open_trades": int(open_n), "stage": r.stage, "age_h": round((datetime.now(timezone.utc) - r.created_at).total_seconds() / 3600, 1),
                         "timeframe": r.timeframe, "horizon": r.horizon_bars, "paper_trades": res.n,
                         "hit": None if res.hit_rate is None else round(res.hit_rate, 3), "chance": None if res.chance is None else round(res.chance, 3),
                         "net_per_trade_pct": None if res.net_mean is None else round(res.net_mean * 100, 3),
